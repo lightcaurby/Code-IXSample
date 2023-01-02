@@ -7,6 +7,7 @@
 
 using namespace std;
 
+#define IN
 #define OUT
 
 namespace
@@ -378,12 +379,30 @@ class IIXEnumerable
 {
 public:
 
+    // Helper types.
+    typedef shared_ptr< IIXEnumerable > SHP;
+
+    // Helper types.
+    typedef unique_ptr< IIXEnumerable > UP;
+
     // Proceeds the enumerator.
     enum class Available { Yes, Perhaps, No };
     virtual CResult< Available > MoveNext( const CMF_LogicalTimestamp& ltLastSeen ) = 0;
     
     // Gets the current item.
     virtual CResult< CIXItem > Current() const = 0;
+};
+
+// Processor interface.
+class IIXProcessor
+{
+public:
+
+    // Helper types.
+    typedef shared_ptr< IIXProcessor > SHP;
+
+    // Helper types.
+    typedef unique_ptr< IIXProcessor > UP;
 
     // Processes the specified item.
     virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) = 0;
@@ -480,13 +499,6 @@ public:
         }  // end if
     }
 
-    // Processes the specified item.
-    virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) override
-    {
-        // Not implemented.
-        return CResult< CMF_LogicalTimestamp >( false, CMF_LogicalTimestamp() );
-    }
-
 private:
 
     // Delete the default constructor.
@@ -570,13 +582,6 @@ public:
         return m_upLowerLayerEnum->Current();
     }
 
-    // Processes the specified item.
-    virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) override
-    {
-        // Not implemented.
-        return CResult< CMF_LogicalTimestamp >( false, CMF_LogicalTimestamp() );
-    }
-
 private:
 
     // Delete the default constructor.
@@ -657,7 +662,7 @@ public:
         case IIXEnumerable::Available::Perhaps:
 
             // There might be more data available, but in order to determine that we 
-            // need to re-initialize the lower layers when we proceed the eunmerator
+            // need to re-initialize the lower layers when we proceed the enumerator
             // next time. Before doing that, we must commit the current status if we
             // have received more items than the batch size.
             if(m_iCurrentCount > 0 && m_iCurrentCount >= m_shpCB->GetBatchSize())
@@ -690,13 +695,6 @@ public:
     {
         // Delegate to the lower layer.
         return m_upLowerLayerEnum->Current();
-    }
-
-    // Processes the specified item.
-    virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) override
-    {
-        // Not implemented.
-        return CResult< CMF_LogicalTimestamp >( false, CMF_LogicalTimestamp() );
     }
 
 private:
@@ -744,9 +742,12 @@ private:
 };
 
 // Top level enumerator object.
-class CIXItems : public IIXEnumerable
+class CIXItems : public IIXEnumerable, public IIXProcessor
 {
 public:
+
+    // Helper types.
+    typedef shared_ptr< CIXItems > SHP;
 
     // Helper types.
     typedef unique_ptr< CIXItems > UP;
@@ -790,6 +791,9 @@ public:
         return m_upLowerLayerEnum->Current();
     }
 
+// IIXProcessor
+public:
+
     // Processes the specified item.
     virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) override
     {
@@ -830,8 +834,12 @@ private:
     CIXItemsBatched::UP m_upLowerLayerEnum;  // The lower layer enumerator.
 };
 
-
-
+void IndexerLoop(
+    CMF_LogicalTimestamp& lt,
+    const IIXEnumerable::SHP& upEnumerable,
+    const IIXProcessor::SHP& upProcessor )
+{
+}
 
 // Main program.
 int main()
@@ -863,7 +871,8 @@ int main()
             // Process the current item.
             lt = IX_TRY( upItems->Process( item ) );
         }
-    }
+
+     }
     catch( CIXException ixex )
     {
         cout << "*** CIXException on line " << ixex.where() << endl;
