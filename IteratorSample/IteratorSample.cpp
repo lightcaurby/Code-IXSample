@@ -408,29 +408,25 @@ public:
     virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) = 0;
 };
 
-// Enumerator object for raw item data.
-class CIXItemsRaw : public IIXEnumerable
+// Enumerator object for chunked item data.
+class CIXItemsChunked : public IIXEnumerable
 {
 public:
-
     // Helper types.
-    typedef unique_ptr< CIXItemsRaw > UP;
+    typedef unique_ptr< CIXItemsChunked > UP;
 
     // Factory method.
-    static CIXItemsRaw::UP Create(
-        const IIXCallback::SHP& shpCB,
-        const CMF_LogicalTimestamp& lt,
-        int iCount )
+    static CIXItemsChunked::UP Create( IIXCallback::SHP& shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
             return UP();
 
         // Delegate.
-        return UP( new CIXItemsRaw( shpCB, lt, iCount ) );
+        return UP( new CIXItemsChunked( shpCB, shpCB->GetChunkSize() ) );
     }
 
- // IIXEnumerable
+// IIXEnumerable
 public:
 
     // Proceeds the enumerator.
@@ -438,12 +434,12 @@ public:
     {
         // Initialize or proceed the enumerator. 
         IIXEnumerable::Available retval = IIXEnumerable::Available::No;
-        if( m_bRetrieved == false )
+        if(m_bRetrieved == false)
         {
             // Retrieve the data as we have not done that yet.
             retval = RetrieveData( ltLastSeen );
         }
-        else if( m_itr != m_vecItems.end() )
+        else if(m_itr != m_vecItems.end())
         {
             // We have already attempted to retrieve some data.
 
@@ -452,14 +448,14 @@ public:
 
             // Determine the continuation status.
             retval = m_itr != m_vecItems.end()
-                    ? IIXEnumerable::Available::Yes
-                    : m_vecItems.size() < m_iRetrievalCount
-                            ? IIXEnumerable::Available::No
-                            : IIXEnumerable::Available::Perhaps;
+                ? IIXEnumerable::Available::Yes
+                : m_vecItems.size() < m_iRetrievalCount
+                ? IIXEnumerable::Available::No
+                : IIXEnumerable::Available::Perhaps;
         }  // end if
 
         // Inspect the availability status.
-        switch( retval )
+        switch(retval)
         {
         case IIXEnumerable::Available::Perhaps:
 
@@ -486,7 +482,7 @@ public:
     virtual CResult< CIXItem > Current() const override
     {
         // Do we have data available?
-        if( m_itr == m_vecItems.end() )
+        if(m_itr == m_vecItems.end())
         {
             // No, raise an error.
             return CResult< CIXItem >( false, CIXItem() );
@@ -502,13 +498,10 @@ public:
 private:
 
     // Delete the default constructor.
-    CIXItemsRaw() = delete;
+    CIXItemsChunked() = delete;
 
     // Constructor.
-    CIXItemsRaw(
-        const IIXCallback::SHP& shpCB,
-        const CMF_LogicalTimestamp& lt,
-        int iCount ) :
+    CIXItemsChunked( const IIXCallback::SHP& shpCB, int iCount ) :
         m_shpCB( shpCB ),
         m_bRetrieved( false ),
         m_iRetrievalCount( iCount )
@@ -522,19 +515,19 @@ private:
         _ASSERTE( m_shpCB );
         IIXEnumerable::Available retval = IIXEnumerable::Available::No;
         IIXDataSource::SHP shpDataSource = m_shpCB->AccessDataSource();
-        if( shpDataSource )
+        if(shpDataSource)
         {
             // Retrieve the data and set the iterator.
-            if( shpDataSource->RetrieveData( ltLastSeen, m_iRetrievalCount, OUT m_vecItems ))
+            if(shpDataSource->RetrieveData( ltLastSeen, m_iRetrievalCount, OUT m_vecItems ))
                 m_itr = m_vecItems.begin();
 
         }  // end if
-                
+
         // Initialization status.
         m_bRetrieved = true;
 
         // Continuation status.
-        if( m_itr != m_vecItems.end() )
+        if(m_itr != m_vecItems.end())
             retval = IIXEnumerable::Available::Yes;
 
         return retval;
@@ -548,69 +541,6 @@ private:
     vector< CIXItem >::const_iterator m_itr;  // Local iterator for items.
 };
 
-// Enumerator object for chunked item data.
-class CIXItemsChunked : public IIXEnumerable
-{
-public:
-    // Helper types.
-    typedef unique_ptr< CIXItemsChunked > UP;
-
-    // Factory method.
-    static CIXItemsChunked::UP Create( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
-    {
-        // Sanity check.
-        if( shpCB == nullptr )
-            return UP();
-
-        // Delegate.
-        return UP( new CIXItemsChunked( shpCB, lt ) );
-    }
-
-// IIXEnumerable
-public:
-
-    // Proceeds the enumerator.
-    virtual CResult< IIXEnumerable::Available > MoveNext( const CMF_LogicalTimestamp& ltLastSeen ) override
-    {
-        return m_upLowerLayerEnum->MoveNext( ltLastSeen );
-    }
-
-    // Gets the current item.
-    virtual CResult< CIXItem > Current() const override
-    {
-        // Delegate to the lower layer.
-        return m_upLowerLayerEnum->Current();
-    }
-
-private:
-
-    // Delete the default constructor.
-    CIXItemsChunked() = delete;
-
-    // Constructor.
-    CIXItemsChunked( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
-        : m_shpCB( shpCB )
-    {
-        // Delegate.
-        Initialize( shpCB, lt );
-    }
-
-    // Initializes the lower enumerator layer.
-    void Initialize( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
-    {
-        // Create the lower enumerator layer.
-        cout << Indent( 2 ) << "Raw container being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsRaw::Create(
-                shpCB,
-                lt,
-                shpCB->GetChunkSize() ) );
-    }
-
-private:
-    IIXCallback::SHP m_shpCB;  // Callback interface.
-    CIXItemsRaw::UP m_upLowerLayerEnum;  // The lower layer enumerator.
-};
-
 // Enumerator object for batched item data.
 class CIXItemsBatched : public IIXEnumerable
 {
@@ -620,14 +550,14 @@ public:
     typedef unique_ptr< CIXItemsBatched > UP;
 
     // Factory method.
-    static CIXItemsBatched::UP Create( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    static CIXItemsBatched::UP Create( IIXCallback::SHP& shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
             return UP();
 
         // Delegate.
-        return UP( new CIXItemsBatched( shpCB, lt ) );
+        return UP( new CIXItemsBatched( shpCB ) );
     }
 
 // IIXEnumerable
@@ -673,7 +603,7 @@ public:
             else
             {
                 // Reset the lower layers.
-                Initialize( m_shpCB, ltLastSeen );
+                Initialize( m_shpCB );
                 
                 // Recurse.
                 res = MoveNext( ltLastSeen );
@@ -703,19 +633,19 @@ private:
     CIXItemsBatched() = delete;
 
     // Constructor.
-    CIXItemsBatched( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    CIXItemsBatched( IIXCallback::SHP& shpCB )
         : m_shpCB( shpCB ), m_iCurrentCount( 0 )
     {
         // Delegate.
-        Initialize( shpCB, lt );
+        Initialize( shpCB );
     }
 
     // Initializes the lower enumerator layer.
-    void Initialize( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    void Initialize( IIXCallback::SHP& shpCB )
     {
         // Create the lower enumerator layer.
         cout << Indent( 1 ) << "Chunk being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB, lt ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB ) );
     }
 
     // Commits the current progress.
@@ -753,14 +683,14 @@ public:
     typedef unique_ptr< CIXItems > UP;
 
     // Factory method.
-    static CIXItems::UP Create( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    static CIXItems::UP Create( IIXCallback::SHP& shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
             return UP();
 
         // Delegate.
-        return UP( new CIXItems( shpCB, lt ) );
+        return UP( new CIXItems( shpCB ) );
     }
 
 // IIXEnumerable
@@ -775,7 +705,7 @@ public:
         if( IX_TRY( res ) == IIXEnumerable::Available::Perhaps )
         {
             // Reset the lower layers.
-            Initialize( m_shpCB, ltLastSeen );
+            Initialize( m_shpCB );
 
             // Recurse.
             res = MoveNext( ltLastSeen );
@@ -814,32 +744,25 @@ private:
     CIXItems() = delete;
 
     // Constructor.
-    CIXItems( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    CIXItems( IIXCallback::SHP& shpCB )
         : m_shpCB( shpCB )
     {
         // Delegate.
-        Initialize( shpCB, lt );
+        Initialize( shpCB );
     }
 
     // Initializes the lower enumerator layer.
-    void Initialize( IIXCallback::SHP& shpCB, const CMF_LogicalTimestamp& lt )
+    void Initialize( IIXCallback::SHP& shpCB )
     {
         // Create the lower enumerator layer.
         cout << "Batch being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB, lt ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB ) );
     }
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
     CIXItemsBatched::UP m_upLowerLayerEnum;  // The lower layer enumerator.
 };
-
-void IndexerLoop(
-    CMF_LogicalTimestamp& lt,
-    const IIXEnumerable::SHP& upEnumerable,
-    const IIXProcessor::SHP& upProcessor )
-{
-}
 
 // Main program.
 int main()
@@ -860,7 +783,7 @@ int main()
     try
     {
         // Initialize the enumerator.
-        CIXItems::UP upItems = IX_UP_TRY( CIXItems::Create( shpCB, lt ) );
+        CIXItems::UP upItems = IX_UP_TRY( CIXItems::Create( shpCB ) );
 
         // Proceed with the enumerator.
         while( IX_TRY( upItems->MoveNext( lt ) ) != IIXEnumerable::Available::No )

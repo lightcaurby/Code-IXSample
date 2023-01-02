@@ -20,35 +20,31 @@ class IIXCallback
 IIXProcessor <|-- CIXItems
 IIXEnumerable <|-- CIXItems
 IIXEnumerable <|-- CIXItemsBatched
-IIXEnumerable <|-- CIXItemsChunked
-IIXEnumerable <|-- CIXItemsRaw
 
 CIXItems o-- CIXItemsBatched
 CIXItemsBatched o-- CIXItemsChunked
-CIXItemsChunked o-- CIXItemsRaw
-CIXItemsRaw o-- "*" CIXItem
+CIXItemsChunked o-- "*" CIXItem
 
 CIXItems : Create( IIXCallback, ...)
 CIXItemsBatched : Create( IIXCallback, ...)
 CIXItemsChunked : Create( IIXCallback, ...)
-CIXItemsRaw : Create( IIXCallback, ...)
 
 class DataSource
 <<external>> DataSource
 IIXDataSource <|-- DataSource
+
 
 class IIXIndexing 
 <<interface>> IIXIndexing
 IIXIndexing : Index(CIXItem)
 IIXIndexing : Commit(Timestamp)
 
-class SearchEngineProxy
-<<external>> SearchEngineProxy
-IIXIndexing <|-- SearchEngineProxy
+class SearchEngine
+<<external>> SearchEngine
+IIXIndexing <|-- SearchEngine
 
-SearchEngineProxy o-- TimestampManager
-TimestampManager o-- SearchEngine
-SearchEngineProxy o-- SearchEngine
+SearchEngine --> TimestampStorage
+SearchEngine --> Index API
 
 class IIXMonitor
 <<interface>> IIXMonitor
@@ -60,7 +56,7 @@ class MonitorRelay
 <<external>> MonitorRelay
 IIXMonitor <|-- MonitorRelay
 
-CIXItemsRaw --> IIXDataSource : Retrieve data
+CIXItemsChunked --> IIXDataSource : Retrieve data
 CIXItemsBatched --> IIXIndexing : Commit
 CIXItems --> IIXIndexing : Index
 
