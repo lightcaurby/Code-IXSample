@@ -321,10 +321,10 @@ public:
     virtual int GetChunkSize() = 0;
 
     // Accesses the data source.
-    virtual const IIXDataSource::SHP& AccessDataSource() = 0;
+    virtual const IIXDataSource::SHP AccessDataSource() = 0;
 
     // Accesses the indexing engine.
-    virtual const IIXIndexing::SHP& AccessIndexing() = 0;
+    virtual const IIXIndexing::SHP AccessIndexing() = 0;
 };
 
 // Callback implementation.
@@ -333,7 +333,7 @@ class CIXCallback : public IIXCallback
 public:
 
     // Constructor.
-    CIXCallback( IIXDataSource::SHP& shpDataSource, IIXIndexing::SHP& shpIndexing )
+    CIXCallback( IIXDataSource::SHP shpDataSource, IIXIndexing::SHP shpIndexing )
         : m_shpDataSource( shpDataSource ), m_shpIndexing( shpIndexing )
     {
     }
@@ -356,14 +356,14 @@ public:
     }
 
     // Accesses the data source.
-    virtual IIXDataSource::SHP& AccessDataSource() override
+    virtual const IIXDataSource::SHP AccessDataSource() override
     {
         // Access the data source.
         return m_shpDataSource;
     }
 
     // Accesses the indexing engine.
-    virtual IIXIndexing::SHP& AccessIndexing() override
+    virtual const IIXIndexing::SHP AccessIndexing() override
     {
         // Access the data source.
         return m_shpIndexing;
@@ -391,6 +391,9 @@ public:
     
     // Gets the current item.
     virtual CResult< CIXItem > Current() const = 0;
+
+    // Resets the enumerator.
+    virtual void Reset( IIXCallback::SHP shpCB ) = 0;
 };
 
 // Processor interface.
@@ -416,14 +419,14 @@ public:
     typedef unique_ptr< CIXItemsChunked > UP;
 
     // Factory method.
-    static CIXItemsChunked::UP Create( IIXCallback::SHP& shpCB )
+    static CIXItemsChunked::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
             return UP();
 
         // Delegate.
-        return UP( new CIXItemsChunked( shpCB, shpCB->GetChunkSize() ) );
+        return UP( new CIXItemsChunked( shpCB ) );
     }
 
 // IIXEnumerable
@@ -495,17 +498,26 @@ public:
         }  // end if
     }
 
+    // Resets the enumerator.
+    virtual void Reset( IIXCallback::SHP shpCB ) override
+    {
+        // Reset the members.
+        _ASSERTE( shpCB );
+        m_shpCB = shpCB;
+        m_bRetrieved = false;
+        m_iRetrievalCount = shpCB->GetChunkSize();
+    }
+
 private:
 
     // Delete the default constructor.
     CIXItemsChunked() = delete;
 
     // Constructor.
-    CIXItemsChunked( const IIXCallback::SHP& shpCB, int iCount ) :
-        m_shpCB( shpCB ),
-        m_bRetrieved( false ),
-        m_iRetrievalCount( iCount )
+    CIXItemsChunked( const IIXCallback::SHP shpCB )
     {
+        // Delegate.
+        Reset( shpCB );
     }
 
     // Attempts to retrieve data to the local container.
@@ -550,7 +562,7 @@ public:
     typedef unique_ptr< CIXItemsBatched > UP;
 
     // Factory method.
-    static CIXItemsBatched::UP Create( IIXCallback::SHP& shpCB )
+    static CIXItemsBatched::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
@@ -603,7 +615,7 @@ public:
             else
             {
                 // Reset the lower layers.
-                Initialize( m_shpCB );
+                Reset( m_shpCB );  // void
                 
                 // Recurse.
                 res = MoveNext( ltLastSeen );
@@ -627,25 +639,29 @@ public:
         return m_upLowerLayerEnum->Current();
     }
 
+    // Resets the enumerator.
+    virtual void Reset( IIXCallback::SHP shpCB ) override
+    {
+        // Reset the members.
+        _ASSERTE( shpCB );
+        m_shpCB = shpCB;
+        m_iCurrentCount = 0;
+
+        // Create the lower enumerator layer.
+        cout << Indent( 1 ) << "Chunk being initialized." << endl;
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB ) );
+    }
+
 private:
 
     // Delete the default constructor.
     CIXItemsBatched() = delete;
 
     // Constructor.
-    CIXItemsBatched( IIXCallback::SHP& shpCB )
-        : m_shpCB( shpCB ), m_iCurrentCount( 0 )
+    CIXItemsBatched( IIXCallback::SHP shpCB )
     {
         // Delegate.
-        Initialize( shpCB );
-    }
-
-    // Initializes the lower enumerator layer.
-    void Initialize( IIXCallback::SHP& shpCB )
-    {
-        // Create the lower enumerator layer.
-        cout << Indent( 1 ) << "Chunk being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB ) );
+        Reset( shpCB );  // void
     }
 
     // Commits the current progress.
@@ -683,7 +699,7 @@ public:
     typedef unique_ptr< CIXItems > UP;
 
     // Factory method.
-    static CIXItems::UP Create( IIXCallback::SHP& shpCB )
+    static CIXItems::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
@@ -705,7 +721,7 @@ public:
         if( IX_TRY( res ) == IIXEnumerable::Available::Perhaps )
         {
             // Reset the lower layers.
-            Initialize( m_shpCB );
+            Reset( m_shpCB );  // void
 
             // Recurse.
             res = MoveNext( ltLastSeen );
@@ -719,6 +735,18 @@ public:
     {
         // Delegate to the lower layer.
         return m_upLowerLayerEnum->Current();
+    }
+
+    // Resets the enumerator.
+    virtual void Reset( IIXCallback::SHP shpCB ) override
+    {
+        // Reset the members.
+        _ASSERTE( shpCB );
+        m_shpCB = shpCB;
+
+        // Create the lower enumerator layer.
+        cout << "Batch being initialized." << endl;
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB ) );
     }
 
 // IIXProcessor
@@ -744,19 +772,10 @@ private:
     CIXItems() = delete;
 
     // Constructor.
-    CIXItems( IIXCallback::SHP& shpCB )
-        : m_shpCB( shpCB )
+    CIXItems( IIXCallback::SHP shpCB )
     {
         // Delegate.
-        Initialize( shpCB );
-    }
-
-    // Initializes the lower enumerator layer.
-    void Initialize( IIXCallback::SHP& shpCB )
-    {
-        // Create the lower enumerator layer.
-        cout << "Batch being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB ) );
+        Reset( shpCB );  // void
     }
 
 private:

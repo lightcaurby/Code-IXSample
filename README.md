@@ -5,6 +5,7 @@ class IIXEnumerable
 <<interface>> IIXEnumerable
 IIXEnumerable : MoveNext( Timestamp ) Available
 IIXEnumerable : Current() CXItem
+IIXEnumerable : Reset()
 
 class IIXProcessor
 <<interface>> IIXProcessor
@@ -20,6 +21,7 @@ class IIXCallback
 IIXProcessor <|-- CIXItems
 IIXEnumerable <|-- CIXItems
 IIXEnumerable <|-- CIXItemsBatched
+IIXEnumerable <|-- CIXItemsChunked
 
 CIXItems o-- CIXItemsBatched
 CIXItemsBatched o-- CIXItemsChunked
