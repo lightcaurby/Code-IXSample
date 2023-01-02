@@ -3,7 +3,7 @@ classDiagram
 
 class IIXEnumerable
 <<interface>> IIXEnumerable
-IIXEnumerable : MoveNext( Timestamp ) Available
+IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
 IIXEnumerable : Current() CXItem
 IIXEnumerable : Reset()
 
