@@ -8,21 +8,21 @@ class IIXTimestampManager
 <<interface>> IIXTimestampManager
 IIXTimestampManager : Commit(Timestamp)
 class TimestampManager
-<<external>> TimestampManager
+<<service>> TimestampManager
 IIXTimestampManager <|-- TimestampManager
 
 class IIXIndexingEngine 
 <<interface>> IIXIndexingEngine
 IIXIndexingEngine : Index(CIXItem)
 class IndexingEngine
-<<external>> IndexingEngine
+<<service>> IndexingEngine
 IIXIndexingEngine <|-- IndexingEngine
 
 class IIXDataRetrieval
 <<interface>> IIXDataRetrieval
 IIXDataRetrieval : RetrieveData(Timestamp) 
 class DataRetrieval
-<<external>> DataRetrieval
+<<service>> DataRetrieval
 IIXDataRetrieval <|-- DataRetrieval
 
 class IIXMonitor
@@ -31,7 +31,7 @@ IIXMonitor : RecordCommon(...)
 IIXMonitor : RecordPreBatch()...)
 IIXMonitor : RecordPostBatch(...)
 class MonitorRelay
-<<external>> MonitorRelay
+<<service>> MonitorRelay
 IIXMonitor <|-- MonitorRelay
 
 IIXCallback <|-- CIXCallback
@@ -63,16 +63,32 @@ class IIXCallback
 
 
 class TAspect
+<<aspect>> TAspect
 
 class IIXJob
 <<interface>> IIXJob
 IIXJob : Run()
 IIXJob <|-- CIXJob
 CIXJob : Create( IXCallback )
+CIXJob : Process( CIXItem)
 TAspect <|-- CIXJob
 TAspect : RunImpl()
-TAspect -- CIXJobAspectCombined
-TAspect -- CIXJobAspectDtSearch
+TAspect -- CAIXJobCombined : specialized
+CAIXJobCombined : RunImpl()
+TAspect -- CAIXJobDtSearch : specialized
+CAIXJobDtSearch : RunImpl()
+CAIXJobDtSearch : getNextDoc()
+CAIXJobDtSearch : rewind()
+CAIXJobDtSearch : OnProgressUpdate()
+CAIXJobBase <|-- TAspect
+CAIXJobBase : Reset( ...)
+class CAIXJob
+<<interface>> CAIXJob
+CAIXJob : Reset(...)
+CAIXJob : RunImpl()
+CAIXJob : Process(CIXItem)
+CAIXJob <|-- CAIXJobBase
+
 
 class IIXEnumerable
 <<interface>> IIXEnumerable
@@ -80,20 +96,17 @@ IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
 IIXEnumerable : Current() CXItem
 IIXEnumerable : Reset()
 IIXEnumerable <|-- CIXItemsEnumerator
-CIXJobAspectCombined o-- IIXEnumerable
+CAIXJobBase o-- IIXEnumerable
 
-class IIXDataSource
-<<interface>> IIXDataSource
-IIXDataSource <|-- CIXDataSource
-CIXDataSource : Create( IXCallback )
-CIXJobAspectDtSearch o-- IIXDataSource
-CIXDataSource o-- IIXEnumerable
-
+class DIndexJob
+<<dtSearch>> DIndexJob
+DIndexJob <|-- CAIXJobDtSearch
+DIndexJob : OnProgressUpdate
 class dtsDataSource
-<<interface>> dtsDataSource
+<<dtSearch>> dtsDataSource
 dtsDataSource : getNextDoc()
 dtsDataSource : rewind()
-dtsDataSource <|-- IIXDataSource
+dtsDataSource <|-- CAIXJobDtSearch
 
 class Indexer
 <<service>> Indexer
@@ -127,7 +140,7 @@ class IIXDataRetrieval
 <<interface>> IIXDataRetrieval
 IIXDataRetrieval : RetrieveData(Timestamp) 
 class DataRetrieval
-<<external>> DataRetrieval
+<<service>> DataRetrieval
 IIXDataRetrieval <|-- DataRetrieval
 
 CIXItemsEnumerator o-- CIXItemsBatched

@@ -167,9 +167,18 @@ namespace
             throw CIXException( iLine, "Error" );
         return up;
     }
+
+    template< typename T >
+    shared_ptr< T > IX_SHP_TRY_IMPL( shared_ptr< T > shp, int iLine )
+    {
+        if( shp == false )
+            throw CIXException( iLine, "Error" );
+        return shp;
+    }
 };
 #define IX_TRY( res ) IX_TRY_IMPL( res, __LINE__ )
 #define IX_UP_TRY( up ) IX_UP_TRY_IMPL( up, __LINE__ )
+#define IX_SHP_TRY( shp ) IX_SHP_TRY_IMPL( shp, __LINE__ )
 
 // Indexing engine interface.
 class IIXIndexing
@@ -195,11 +204,13 @@ public:
     CIXIndexing()
         : m_iItemsIndexed( 0 )
     {
+        cout << "*** construct CIXIndexing" << endl;
     }
 
     // Destructor.
     virtual ~CIXIndexing()
     {
+        cout << "*** destruct CIXIndexing" << endl;
         cout << endl << "Indexed " << m_iItemsIndexed << " items." << endl;
     }
 
@@ -300,6 +311,13 @@ public:
     CIXDataRetrieval()
         : m_iTotalCount( 0 )
     {
+        cout << "*** construct CIXDataRetrieval" << endl;
+    }
+
+    // Destructor.
+    virtual ~CIXDataRetrieval()
+    {
+        cout << "*** destruct CIXDataRetrieval" << endl;
     }
 
 // IIXDataRetrieval
@@ -569,11 +587,19 @@ private:
     CIXItemsChunked() = delete;
 
     // Constructor.
-    CIXItemsChunked( const IIXCallback::SHP shpCB ) :
+    CIXItemsChunked( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
+        cout << "*** construct CIXItemsChunked" << endl;
+
         // Delegate.
         Reset( m_shpCB );
+    }
+
+    // Destructor.
+    virtual ~CIXItemsChunked()
+    {
+        cout << "*** destruct CIXItemsChunked" << endl;
     }
 
     // Attempts to retrieve data to the local container.
@@ -721,8 +747,16 @@ private:
     CIXItemsBatched( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB ), m_iCurrentCount( 0 )
     {
+        cout << "*** construct CIXItemsBatched" << endl;
+
         // Delegate.
         Reset( m_shpCB );  // void
+    }
+
+    // Destructor.
+    virtual ~CIXItemsBatched()
+    {
+        cout << "*** destruct CIXItemsBatched" << endl;
     }
 
     // Commits the current progress.
@@ -816,8 +850,16 @@ private:
     CIXItemsEnumerator( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
+        cout << "*** construct CIXItemsEnumerator" << endl;
+
         // Delegate.
         Reset( m_shpCB );  // void
+    }
+
+    // Destructor.
+    virtual ~CIXItemsEnumerator()
+    {
+        cout << "*** destruct CIXItemsEnumerator" << endl;
     }
 
 private:
@@ -855,7 +897,6 @@ public:
 
 
 // Base class for helper aspect classes for combined indexer jobs.
-template< typename TEnumerator >
 class CAIXJobBase : public IAIXJob
 {
 public:
@@ -868,7 +909,7 @@ public:
 
         // Create the lower enumerator layer.
         cout << "Enumerator being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( TEnumerator::Create( shpCB ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsEnumerator::Create( shpCB ) );
     }
 
 protected:
@@ -877,7 +918,7 @@ protected:
 };
 
 // Helper aspect class for combined indexer jobs.
-class CAIXJobCombined : public CAIXJobBase< CIXItemsEnumerator >
+class CAIXJobCombined : public CAIXJobBase
 {
 public:
 
@@ -897,7 +938,7 @@ public:
 };
 
 // Helper aspect class for dtSearch indexer jobs.
-class CAIXJobDtSearch : public CAIXJobBase< CIXItemsEnumerator >
+class CAIXJobDtSearch : public CAIXJobBase
 {
 public:
 
@@ -908,8 +949,8 @@ public:
 };
 
 // Indexer job.
-template< typename TAspect >
-class CIXJob : public IIXJob, public TAspect
+//***template< typename TAspect >
+class CIXJob : public IIXJob, public CAIXJobCombined //***TAspect
 {
 public:
 
@@ -931,7 +972,8 @@ public:
     virtual void Run() override
     {
         // Delegate.
-        TAspect::RunImpl();  // void
+        CAIXJobCombined::RunImpl();  // void
+        //***TAspect::RunImpl();  // void
     }
 
 // AIXJob
@@ -963,15 +1005,24 @@ private:
     CIXJob( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
+        cout << "*** construct CIXJob" << endl;
+
         // Delegate.
         Reset( m_shpCB );  // void
+    }
+
+    // Destructor.
+    virtual ~CIXJob()
+    {
+        cout << "*** destruct CIXJob" << endl;
     }
 
     // Resets the enumerator.
     void Reset( IIXCallback::SHP shpCB )
     {
         // Delegate to the aspect.
-        TAspect::Reset( shpCB );
+        CAIXJobCombined::Reset( shpCB );
+        //***TAspect::Reset( shpCB );
     }
 
 private:
@@ -998,17 +1049,20 @@ int main()
     {
         // Initialize the job.
         cout << "Job being created." << endl;
-        typedef CIXJob< CAIXJobCombined > CIXJOB;
-        CIXJOB::UP upJob = IX_UP_TRY( ( CIXJOB::Create( shpCB ) ) );
+        typedef CIXJob CIXJOB;
+        //***typedef CIXJob< CAIXJobCombined > CIXJOB;
+        CIXJOB::UP upJob = IX_UP_TRY( CIXJOB::Create( shpCB ) );
 
         // Run the job.
-        upJob->Run();  // void
-
+        //***upJob->Run();  // void
      }
     catch( CIXException ixex )
     {
         cout << "*** CIXException on line " << ixex.where() << endl;
         cout << ixex.what();
     }
+
+    cout << shpCB.use_count() << endl;
+    cout << shpDataRetrieval.use_count() << endl;
 }
 
