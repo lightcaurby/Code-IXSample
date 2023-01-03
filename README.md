@@ -1,82 +1,130 @@
 ```mermaid
 classDiagram
 
-class IIXEnumerable
-<<interface>> IIXEnumerable
-IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
-IIXEnumerable : Current() CXItem
-IIXEnumerable : Reset()
-
-class IIXProcessor
-<<interface>> IIXProcessor
-IIXProcessor : Process( CXItem) Timestamp
-
-class IIXDataSource
-<<interface>> IIXDataSource
-IIXDataSource : RetrieveData(Timestamp) 
-
 class IIXCallback
 <<interface>> IIXCallback
 
-IIXProcessor <|-- CIXItems
-IIXEnumerable <|-- CIXItems
-IIXEnumerable <|-- CIXItemsBatched
-IIXEnumerable <|-- CIXItemsChunked
+class IIXTimestampManager
+<<interface>> IIXTimestampManager
+IIXTimestampManager : Commit(Timestamp)
+class TimestampManager
+<<external>> TimestampManager
+IIXTimestampManager <|-- TimestampManager
 
-CIXItems o-- CIXItemsBatched
-CIXItemsBatched o-- CIXItemsChunked
-CIXItemsChunked o-- "*" CIXItem
+class IIXIndexingEngine 
+<<interface>> IIXIndexingEngine
+IIXIndexingEngine : Index(CIXItem)
+class IndexingEngine
+<<external>> IndexingEngine
+IIXIndexingEngine <|-- IndexingEngine
 
-CIXItems : Create( IIXCallback, ...)
-CIXItemsBatched : Create( IIXCallback, ...)
-CIXItemsChunked : Create( IIXCallback, ...)
-
-class DataSource
-<<external>> DataSource
-IIXDataSource <|-- DataSource
-
-
-class IIXIndexing 
-<<interface>> IIXIndexing
-IIXIndexing : Index(CIXItem)
-IIXIndexing : Commit(Timestamp)
-
-class SearchEngine
-<<external>> SearchEngine
-IIXIndexing <|-- SearchEngine
-
-SearchEngine --> TimestampStorage
-SearchEngine --> Index API
+class IIXDataRetrieval
+<<interface>> IIXDataRetrieval
+IIXDataRetrieval : RetrieveData(Timestamp) 
+class DataRetrieval
+<<external>> DataRetrieval
+IIXDataRetrieval <|-- DataRetrieval
 
 class IIXMonitor
 <<interface>> IIXMonitor
 IIXMonitor : RecordCommon(...)
 IIXMonitor : RecordPreBatch()...)
 IIXMonitor : RecordPostBatch(...)
-
 class MonitorRelay
 <<external>> MonitorRelay
 IIXMonitor <|-- MonitorRelay
 
-CIXItemsChunked --> IIXDataSource : Retrieve data
-CIXItemsBatched --> IIXIndexing : Commit
-CIXItems --> IIXIndexing : Index
-
 IIXCallback <|-- CIXCallback
-CIXCallback o-- IIXDataSource
-CIXCallback o-- IIXIndexing
+CIXCallback o-- IIXDataRetrieval
+CIXCallback o-- IIXIndexingEngine
+CIXCallback o-- IIXTimestampManager
 CIXCallback o-- IIXMonitor
-
-%%CIXItems o-- IIXCallback
-%%CIXItemsBatched o-- IIXCallback
-%%CIXItemsChunked o-- IIXCallback
 
 class Indexer
 <<service>> Indexer
 
-Indexer --> CIXItems : Create, Enumerate & Index
 Indexer : Run()
-Indexer o-- CIXCallback
+Indexer --> IIXCallback : provide
+Indexer o-- DataRetrieval
+Indexer o-- MonitorRelay
+Indexer o-- IndexingEngine
+Indexer o-- TimestampManager
+
+
+```
+
+---
+
+```mermaid
+classDiagram
+
+class IIXCallback
+<<interface>> IIXCallback
+
+class IIXDataSource
+<<interface>> IIXDataSource
+IIXDataSource <|-- CIXDataSource
+CIXDataSource : Create( IXCallback )
+
+class TAspect
+
+class IIXJob
+<<interface>> IIXJob
+IIXJob : Run()
+IIXJob <|-- CIXJob
+CIXJob : Create( IXCallback )
+CIXJob o-- CIXDataSource
+TAspect <|-- CIXJob
+TAspect : RunImpl()
+TAspect -- CIXJobAspectCombined
+TAspect -- CIXJobAspectDtSearch
+
+class Indexer
+<<service>> Indexer
+
+Indexer : Run()
+Indexer --> IIXCallback : provide
+Indexer o-- IIXJob : for each request
+
+
+```
+
+---
+
+```mermaid
+classDiagram
+
+class IIXEnumerable
+<<interface>> IIXEnumerable
+IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
+IIXEnumerable : Current() CXItem
+IIXEnumerable : Reset()
+IIXEnumerable <|-- CIXItemsConsumed
+IIXEnumerable <|-- CIXItemsBatched
+IIXEnumerable <|-- CIXItemsChunked
+
+class IIXTimestampManager
+<<interface>> IIXTimestampManager
+IIXTimestampManager : Commit(Timestamp)
+
+class IIXDataRetrieval
+<<interface>> IIXDataRetrieval
+IIXDataRetrieval : RetrieveData(Timestamp) 
+class DataRetrieval
+<<external>> DataRetrieval
+IIXDataRetrieval <|-- DataRetrieval
+
+CIXItemsConsumed o-- CIXItemsBatched
+CIXItemsConsumed : Create( IIXCallback )
+
+CIXItemsBatched o-- CIXItemsChunked
+CIXItemsBatched : Create( IIXCallback )
+CIXItemsBatched --> IIXTimestampManager : Commit
+
+CIXItemsChunked o-- "*" CIXItem
+CIXItemsChunked : Create( IIXCallback )
+CIXItemsChunked --> IIXDataRetrieval : Retrieve data
+
 
 
 ```

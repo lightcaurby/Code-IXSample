@@ -75,9 +75,16 @@ public:
     int Get() const { return m_iValue;  }
 
     // Semantic comparison.
-    bool IsLaterThan( const CMF_LogicalTimestamp& ltOther )
+    bool IsLaterThan( const CMF_LogicalTimestamp& ltOther ) const
     {
         return Get() > ltOther.Get();
+    }
+
+    // Updates if the provided is later.
+    void UpdateIfLater( const CMF_LogicalTimestamp& ltOther )
+    {
+        if( ltOther.IsLaterThan( *this ) )
+            *this = ltOther;
     }
 
 private:
@@ -234,13 +241,13 @@ private:
     int m_iItemsIndexed;  // Number of indexed items.
 };
 
-// Data source interface.
-class IIXDataSource
+// Data retrieval interface.
+class IIXDataRetrieval
 {
 public:
 
     // Helper types.
-    typedef shared_ptr< IIXDataSource > SHP;
+    typedef shared_ptr< IIXDataRetrieval > SHP;
 
     // Returns the number of items globally available.
     virtual int GetGloballyAvailable() = 0;
@@ -267,6 +274,12 @@ public:
     {
     }
 
+    // Default constructor.
+    CIXAvailability() :
+        m_available( Available::No )
+    {
+    }
+
     // Accesses the availability status.
     Available AccessAvailability() const { return m_available;  }
 
@@ -274,27 +287,22 @@ public:
     const CMF_LogicalTimestamp& AccessLatestVisibleTimestamp() const { return m_ltLatestVisible; }
 
 private:
-
-    // Delete the default constructor.
-    CIXAvailability() = delete;
-
-private:
     Available m_available;  // Availability status.
     CMF_LogicalTimestamp m_ltLatestVisible;  // Latest visible timestamp.
 };
 
-// Data source implementation.
-class CIXDataSource : public IIXDataSource
+// Data retrieval implementation.
+class CIXDataRetrieval : public IIXDataRetrieval
 {
 public:
 
     // Constructor.
-    CIXDataSource()
+    CIXDataRetrieval()
         : m_iTotalCount( 0 )
     {
     }
 
-// IIXDataSource
+// IIXDataRetrieval
 public:
 
     // Returns the number of items globally available.
@@ -337,7 +345,13 @@ public:
         }  // end for
 
         // Debug output.
-        cout << Indent( 2 ) << "Retrieved " << vecItems.size() << " items." << endl;
+        cout << Indent( 2 ) <<
+                "Retrieved " <<
+                vecItems.size() <<
+                " items. Latest visible timestamp is " <<
+                ltLatestVisible.Get() <<
+                "." <<
+                endl;
 
         return CResult< CMF_LogicalTimestamp >( true, ltLatestVisible );
     }
@@ -360,8 +374,14 @@ public:
     // Returns the chunk size.
     virtual int GetChunkSize() = 0;
 
-    // Accesses the data source.
-    virtual const IIXDataSource::SHP AccessDataSource() = 0;
+    // Accesses the latest seen timestamp.
+    virtual const CMF_LogicalTimestamp& AccessLatestSeen() const = 0;
+
+    // Updates the locally stored timestamp if the provided one is later.
+    virtual void UpdateIfLater( const CMF_LogicalTimestamp& ltProvided ) = 0;
+
+    // Accesses the data retrieval.
+    virtual const IIXDataRetrieval::SHP AccessDataRetrieval() = 0;
 
     // Accesses the indexing engine.
     virtual const IIXIndexing::SHP AccessIndexing() = 0;
@@ -373,8 +393,8 @@ class CIXCallback : public IIXCallback
 public:
 
     // Constructor.
-    CIXCallback( IIXDataSource::SHP shpDataSource, IIXIndexing::SHP shpIndexing )
-        : m_shpDataSource( shpDataSource ), m_shpIndexing( shpIndexing )
+    CIXCallback( IIXDataRetrieval::SHP shpDataRetrieval, IIXIndexing::SHP shpIndexing, const CMF_LogicalTimestamp& ltLatestSeen )
+        : m_shpDataRetrieval( shpDataRetrieval ), m_shpIndexing( shpIndexing ), m_ltLatestSeen( ltLatestSeen )
     {
     }
 
@@ -395,11 +415,25 @@ public:
         return 10; 
     }
 
-    // Accesses the data source.
-    virtual const IIXDataSource::SHP AccessDataSource() override
+    // Accesses the latest seen timestamp.
+    virtual const CMF_LogicalTimestamp& AccessLatestSeen() const override
     {
-        // Access the data source.
-        return m_shpDataSource;
+        // Access the timestamp.
+        return m_ltLatestSeen;
+    }
+
+    // Updates the locally stored timestamp if the provided one is later.
+    virtual void UpdateIfLater( const CMF_LogicalTimestamp& ltProvided ) override
+    {
+        // Delegate to the timestamp.
+        m_ltLatestSeen.UpdateIfLater( ltProvided );  // void
+    }
+
+    // Accesses the data source.
+    virtual const IIXDataRetrieval::SHP AccessDataRetrieval() override
+    {
+        // Access the data retrieval.
+        return m_shpDataRetrieval;
     }
 
     // Accesses the indexing engine.
@@ -410,8 +444,9 @@ public:
     }
 
 private:
-    IIXDataSource::SHP m_shpDataSource;  // Data source interface.
+    IIXDataRetrieval::SHP m_shpDataRetrieval;  // Data retrieval interface.
     IIXIndexing::SHP m_shpIndexing;  // Indexing engine interface.
+    CMF_LogicalTimestamp m_ltLatestSeen;  // Latest seen timestamp.
 };
 
 // Enumerator interface.
@@ -435,37 +470,20 @@ public:
     virtual void Reset( IIXCallback::SHP shpCB ) = 0;
 };
 
-// Processor interface.
-class IIXProcessor
-{
-public:
-
-    // Helper types.
-    typedef shared_ptr< IIXProcessor > SHP;
-
-    // Helper types.
-    typedef unique_ptr< IIXProcessor > UP;
-
-    // Processes the specified item.
-    virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) = 0;
-};
-
 // Enumerator object for chunked item data.
 class CIXItemsChunked : public IIXEnumerable
 {
 public:
-    // Helper types.
-    typedef unique_ptr< CIXItemsChunked > UP;
 
     // Factory method.
-    static CIXItemsChunked::UP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return UP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return UP( new CIXItemsChunked( shpCB ) );
+        return IIXEnumerable::UP( new CIXItemsChunked( shpCB ) );
     }
 
 // IIXEnumerable
@@ -565,11 +583,11 @@ private:
         _ASSERTE( m_shpCB );
         m_ltLatestVisible = ltLatestSeen;
         CIXAvailability retval( CIXAvailability::Available::No, m_ltLatestVisible );
-        IIXDataSource::SHP shpDataSource = m_shpCB->AccessDataSource();
-        if(shpDataSource)
+        IIXDataRetrieval::SHP shpDataRetrieval = m_shpCB->AccessDataRetrieval();
+        if(shpDataRetrieval)
         {
             // Retrieve the data and set the iterator.
-            m_ltLatestVisible = IX_TRY( shpDataSource->RetrieveData( ltLatestSeen, m_shpCB->GetChunkSize(), OUT m_vecItems ) );
+            m_ltLatestVisible = IX_TRY( shpDataRetrieval->RetrieveData( ltLatestSeen, m_shpCB->GetChunkSize(), OUT m_vecItems ) );
             m_itr = m_vecItems.begin();
 
         }  // end if
@@ -578,7 +596,7 @@ private:
         m_bRetrieved = true;
 
         // Continuation status.
-        if(m_ltLatestVisible.IsLaterThan( ltLatestSeen ) )
+        if( m_ltLatestVisible.IsLaterThan( ltLatestSeen ) )
         {
             retval = CIXAvailability( 
                     m_itr != m_vecItems.end() ? CIXAvailability::Available::Yes : CIXAvailability::Available::Perhaps,
@@ -601,18 +619,15 @@ class CIXItemsBatched : public IIXEnumerable
 {
 public:
 
-    // Helper types.
-    typedef unique_ptr< CIXItemsBatched > UP;
-
     // Factory method.
-    static CIXItemsBatched::UP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return UP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return UP( new CIXItemsBatched( shpCB ) );
+        return IIXEnumerable::UP( new CIXItemsBatched( shpCB ) );
     }
 
 // IIXEnumerable
@@ -624,27 +639,30 @@ public:
         // Proceed the enumerator.
         CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
 
-        // Check the return value.
-        const CIXAvailability& availability = IX_TRY( res );
+        // Track the return value.
+        CIXAvailability availability = IX_TRY( res );
+        bool bCommittedSuccessfully = false;
         switch( availability.AccessAvailability() )
         {
-        // More data available.
+
+        // Data available.
         case CIXAvailability::Available::Yes:
 
             // Track the number of the received items.
             m_iCurrentCount++;
             break;
 
-        // No more data available.
+        // No data available.
         case CIXAvailability::Available::No:
 
             // Data source has been exhausted, so we need to commit the status
             // if we have received any items.
+            // TODO: FastForward?
             if( m_iCurrentCount > 0 )
-                res = Commit( ltLatestSeen, res );
+                bCommittedSuccessfully = IX_TRY( Commit( ltLatestSeen ) );
             break;
 
-        // Perhaps more data available.
+         // Perhaps data available.
         case CIXAvailability::Available::Perhaps:
 
             // There might be more data available, but in order to determine that we 
@@ -654,19 +672,22 @@ public:
             if( m_iCurrentCount > 0 && m_iCurrentCount >= m_shpCB->GetBatchSize() )
             {
                 // Commit the current status.
-                res = Commit( ltLatestSeen, res );
+                bCommittedSuccessfully = IX_TRY( Commit( ltLatestSeen ) );
             }
             else
             {
+                // Forward the timestamp.
+                m_shpCB->UpdateIfLater( availability.AccessLatestVisibleTimestamp() );  // void
+
                 // Reset the lower layers.
                 Reset( m_shpCB );  // void
-                
+
                 // Recurse.
-                res = MoveNext( ltLatestSeen );
+                res = MoveNext( m_shpCB->AccessLatestSeen() );
 
             }  // end if
 
-            break;
+        break;
 
         default:
             break;
@@ -705,7 +726,7 @@ private:
     }
 
     // Commits the current progress.
-    CResult< CIXAvailability > Commit( const CMF_LogicalTimestamp& lt, CResult< CIXAvailability >& res )
+    CResult< bool > Commit( const CMF_LogicalTimestamp& lt )
     {
         // Try to commit.
         _ASSERTE( m_shpCB );
@@ -718,35 +739,29 @@ private:
         m_iCurrentCount = 0;
 
         // Return value.
-        return CResult< CIXAvailability >( bSuccess, IX_TRY( res ) );
+        return CResult< bool >( true, bSuccess );
     }
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
-    CIXItemsChunked::UP m_upLowerLayerEnum;  // The lower layer enumerator.
-    int m_iCurrentCount;  // The number of the received items.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
+    int m_iCurrentCount;  // The number of the processed items.
 };
 
 // Top level enumerator object.
-class CIXItems : public IIXEnumerable, public IIXProcessor
+class CIXItemsEnumerator : public IIXEnumerable
 {
 public:
 
-    // Helper types.
-    typedef shared_ptr< CIXItems > SHP;
-
-    // Helper types.
-    typedef unique_ptr< CIXItems > UP;
-
     // Factory method.
-    static CIXItems::UP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return UP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return UP( new CIXItems( shpCB ) );
+        return IIXEnumerable::UP( new CIXItemsEnumerator( shpCB ) );
     }
 
 // IIXEnumerable
@@ -755,18 +770,24 @@ public:
     // Proceeds the enumerator.
     virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
     {
-        // Move forward until the lower layers give a definite Yes/No response, because
-        // the Perhaps response indicates that we need to try to get more data.
+
+        // Delegate to the lower layer enumerator.
         CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
-        const CIXAvailability& availability = IX_TRY( res );
-        if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps)
+        CIXAvailability availability = IX_TRY( res );
+
+        // Check the current availability first.
+        if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps )
         {
+            // Forward the timestamp.
+            m_shpCB->UpdateIfLater( availability.AccessLatestVisibleTimestamp() );  // void
+
             // Reset the lower layers.
             Reset( m_shpCB );  // void
 
             // Recurse.
-            res = MoveNext( ltLatestSeen );
-        }
+            res = MoveNext( m_shpCB->AccessLatestSeen() );
+
+        }  // end if
 
         return res;
     }
@@ -786,30 +807,13 @@ public:
         m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB ) );
     }
 
-// IIXProcessor
-public:
-
-    // Processes the specified item.
-    virtual CResult< CMF_LogicalTimestamp > Process( const CIXItem& item ) override
-    {
-        // Try to index.
-        _ASSERTE( m_shpCB );
-        bool bSuccess = false;
-        IIXIndexing::SHP shpIndexing = m_shpCB->AccessIndexing();
-        if( shpIndexing )
-            bSuccess = shpIndexing->Index( item );
-
-        // Return the current timestamp.
-        return CResult< CMF_LogicalTimestamp >( true, item.AccessLT() );
-    }
-
 private:
 
     // Delete the default constructor.
-    CIXItems() = delete;
+    CIXItemsEnumerator() = delete;
 
     // Constructor.
-    CIXItems( IIXCallback::SHP shpCB ) :
+    CIXItemsEnumerator( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
         // Delegate.
@@ -818,39 +822,140 @@ private:
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
-    CIXItemsBatched::UP m_upLowerLayerEnum;  // The lower layer enumerator.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
+};
+
+// Indexer job interface.
+class IIXJob
+{
+public:
+
+    // Helper types.
+    typedef unique_ptr< IIXJob > UP;
+
+    // Runs the job.
+    virtual void Run() = 0;
+
+};
+
+// Helper aspect for combined indexer jobs.
+class AIXJobCombined
+{
+protected:
+
+    // Processes the specified item.
+    virtual CResult< bool > Process( const CIXItem& item ) = 0;
+
+    // Runs the job.
+    void RunImpl( const IIXEnumerable::UP& upLowerLayerEnum, IIXCallback::SHP shpCB )
+    {
+        // Proceed with the enumerator.
+        while( IX_TRY( upLowerLayerEnum->MoveNext( shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
+        {
+            // Get the current item.
+            const CIXItem& item = IX_TRY( upLowerLayerEnum->Current() );
+
+            // Process the current item.
+            IX_TRY( Process( item ) );  // Return value ignored.
+        }
+    }
+};
+
+// Indexer job.
+template< typename TAspect, typename TEnumerator >
+class CIXJob : public IIXJob, public TAspect
+{
+public:
+
+    // Factory method.
+    static IIXJob::UP Create( IIXCallback::SHP shpCB )
+    {
+        // Sanity check.
+        if( shpCB == nullptr )
+            return IIXJob::UP();
+
+        // Delegate.
+        return IIXJob::UP( new CIXJob( shpCB ) );
+    }
+
+// IIXJob
+public:
+
+    // Runs the job.
+    virtual void Run() override
+    {
+        // Delegate.
+        TAspect::RunImpl( m_upLowerLayerEnum, m_shpCB );  // void
+    }
+
+private:
+
+    // Delete the default constructor.
+    CIXJob() = delete;
+
+    // Constructor.
+    CIXJob( IIXCallback::SHP shpCB ) :
+        m_shpCB( shpCB )
+    {
+        // Delegate.
+        Reset( m_shpCB );  // void
+    }
+
+    // Resets the enumerator.
+    void Reset( IIXCallback::SHP shpCB )
+    {
+        // Create the lower enumerator layer.
+        cout << "Enumerator being initialized." << endl;
+        m_upLowerLayerEnum = IX_UP_TRY( TEnumerator::Create( shpCB ) );
+    }
+
+    // Processes the specified item.
+    virtual CResult< bool > Process( const CIXItem& item ) override
+    {
+        // Try to index.
+        _ASSERTE( m_shpCB );
+        bool bSuccess = false;
+        IIXIndexing::SHP shpIndexing = m_shpCB->AccessIndexing();
+        if( shpIndexing )
+            bSuccess = shpIndexing->Index( item );
+
+        // Update the status.
+        m_shpCB->UpdateIfLater( item.AccessLT() );  // void
+
+        // Return the success status.
+        return CResult< bool >( true, bSuccess );
+    }
+
+private:
+    IIXCallback::SHP m_shpCB;  // Callback interface.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
 };
 
 // Main program.
 int main()
 {
-    // Data source.
-    shared_ptr< IIXDataSource > shpDataSource = shared_ptr< IIXDataSource >( new CIXDataSource );
+    // Data retrieval engine.
+    shared_ptr< IIXDataRetrieval > shpDataRetrieval = shared_ptr< IIXDataRetrieval >( new CIXDataRetrieval );
 
     // Indexing engine.
     shared_ptr< IIXIndexing > shpIndexing = shared_ptr< IIXIndexing >( new CIXIndexing );
 
-    // Callback.
-    shared_ptr< IIXCallback > shpCB = shared_ptr< IIXCallback >( new CIXCallback( shpDataSource, shpIndexing ) );
-
-    // Overall timestamp.
+    // Overall timestamp. Start from scratch.
     CMF_LogicalTimestamp lt;
+
+    // Callback.
+    shared_ptr< IIXCallback > shpCB = shared_ptr< IIXCallback >( new CIXCallback( shpDataRetrieval, shpIndexing, lt ) );
 
     // Error handling.
     try
     {
-        // Initialize the enumerator.
-        CIXItems::UP upItems = IX_UP_TRY( CIXItems::Create( shpCB ) );
+        // Initialize the job.
+        cout << "Job being created." << endl;
+        typedef CIXJob< AIXJobCombined, CIXItemsEnumerator > CIXJOB;
+        CIXJOB::UP upJob = IX_UP_TRY( ( CIXJOB::Create( shpCB ) ) );
 
-        // Proceed with the enumerator.
-        while( IX_TRY( upItems->MoveNext( lt ) ).AccessAvailability() != CIXAvailability::Available::No )
-        {
-            // Get the current item.
-            const CIXItem& item = IX_TRY( upItems->Current() );
-
-            // Process the current item.
-            lt = IX_TRY( upItems->Process( item ) );
-        }
+        // Run the job.
+        upJob->Run();  // void
 
      }
     catch( CIXException ixex )
