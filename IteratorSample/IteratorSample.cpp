@@ -838,31 +838,77 @@ public:
 
 };
 
-// Helper aspect for combined indexer jobs.
-class AIXJobCombined
+// Helper aspect interface
+class IAIXJob
 {
-protected:
+public:
+    
+    // Resets the aspect.
+    virtual void Reset( IIXCallback::SHP shpCB ) = 0;
+
+    // Runs the job.
+    virtual void RunImpl() = 0;
 
     // Processes the specified item.
     virtual CResult< bool > Process( const CIXItem& item ) = 0;
+};
+
+
+// Base class for helper aspect classes for combined indexer jobs.
+template< typename TEnumerator >
+class CAIXJobBase : public IAIXJob
+{
+public:
+
+    // Resets the aspect.
+    virtual void Reset( IIXCallback::SHP shpCB ) override
+    {
+        // Set the member.
+        m_shpCB = shpCB;
+
+        // Create the lower enumerator layer.
+        cout << "Enumerator being initialized." << endl;
+        m_upLowerLayerEnum = IX_UP_TRY( TEnumerator::Create( shpCB ) );
+    }
+
+protected:
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
+    IIXCallback::SHP m_shpCB;  // Callback interface.
+};
+
+// Helper aspect class for combined indexer jobs.
+class CAIXJobCombined : public CAIXJobBase< CIXItemsEnumerator >
+{
+public:
 
     // Runs the job.
-    void RunImpl( const IIXEnumerable::UP& upLowerLayerEnum, IIXCallback::SHP shpCB )
+    virtual void RunImpl() override
     {
         // Proceed with the enumerator.
-        while( IX_TRY( upLowerLayerEnum->MoveNext( shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
+        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
         {
             // Get the current item.
-            const CIXItem& item = IX_TRY( upLowerLayerEnum->Current() );
+            const CIXItem& item = IX_TRY( m_upLowerLayerEnum->Current() );
 
             // Process the current item.
-            IX_TRY( Process( item ) );  // Return value ignored.
+            IX_TRY( this->Process( item ) );  // Return value ignored.
         }
     }
 };
 
+// Helper aspect class for dtSearch indexer jobs.
+class CAIXJobDtSearch : public CAIXJobBase< CIXItemsEnumerator >
+{
+public:
+
+    // Runs the job.
+    virtual void RunImpl() override
+    {
+    }
+};
+
 // Indexer job.
-template< typename TAspect, typename TEnumerator >
+template< typename TAspect >
 class CIXJob : public IIXJob, public TAspect
 {
 public:
@@ -885,29 +931,11 @@ public:
     virtual void Run() override
     {
         // Delegate.
-        TAspect::RunImpl( m_upLowerLayerEnum, m_shpCB );  // void
+        TAspect::RunImpl();  // void
     }
 
-private:
-
-    // Delete the default constructor.
-    CIXJob() = delete;
-
-    // Constructor.
-    CIXJob( IIXCallback::SHP shpCB ) :
-        m_shpCB( shpCB )
-    {
-        // Delegate.
-        Reset( m_shpCB );  // void
-    }
-
-    // Resets the enumerator.
-    void Reset( IIXCallback::SHP shpCB )
-    {
-        // Create the lower enumerator layer.
-        cout << "Enumerator being initialized." << endl;
-        m_upLowerLayerEnum = IX_UP_TRY( TEnumerator::Create( shpCB ) );
-    }
+// AIXJob
+public:
 
     // Processes the specified item.
     virtual CResult< bool > Process( const CIXItem& item ) override
@@ -927,8 +955,27 @@ private:
     }
 
 private:
+
+    // Delete the default constructor.
+    CIXJob() = delete;
+
+    // Constructor.
+    CIXJob( IIXCallback::SHP shpCB ) :
+        m_shpCB( shpCB )
+    {
+        // Delegate.
+        Reset( m_shpCB );  // void
+    }
+
+    // Resets the enumerator.
+    void Reset( IIXCallback::SHP shpCB )
+    {
+        // Delegate to the aspect.
+        TAspect::Reset( shpCB );
+    }
+
+private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
-    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
 };
 
 // Main program.
@@ -951,7 +998,7 @@ int main()
     {
         // Initialize the job.
         cout << "Job being created." << endl;
-        typedef CIXJob< AIXJobCombined, CIXItemsEnumerator > CIXJOB;
+        typedef CIXJob< CAIXJobCombined > CIXJOB;
         CIXJOB::UP upJob = IX_UP_TRY( ( CIXJOB::Create( shpCB ) ) );
 
         // Run the job.

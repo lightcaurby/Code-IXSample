@@ -61,10 +61,6 @@ classDiagram
 class IIXCallback
 <<interface>> IIXCallback
 
-class IIXDataSource
-<<interface>> IIXDataSource
-IIXDataSource <|-- CIXDataSource
-CIXDataSource : Create( IXCallback )
 
 class TAspect
 
@@ -73,11 +69,30 @@ class IIXJob
 IIXJob : Run()
 IIXJob <|-- CIXJob
 CIXJob : Create( IXCallback )
-CIXJob o-- CIXDataSource
 TAspect <|-- CIXJob
 TAspect : RunImpl()
 TAspect -- CIXJobAspectCombined
 TAspect -- CIXJobAspectDtSearch
+
+class IIXEnumerable
+<<interface>> IIXEnumerable
+IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
+IIXEnumerable : Current() CXItem
+IIXEnumerable : Reset()
+IIXEnumerable <|-- CIXItemsEnumerator
+CIXJobAspectCombined o-- IIXEnumerable
+
+class IIXDataSource
+<<interface>> IIXDataSource
+IIXDataSource <|-- CIXDataSource
+CIXDataSource : Create( IXCallback )
+CIXJobAspectDtSearch o-- IIXDataSource
+CIXDataSource o-- IIXEnumerable
+
+class dtsDataSource
+<<interface>> dtsDataSource
+dtsDataSource : getNextDoc()
+dtsDataSource : rewind()
 
 class Indexer
 <<service>> Indexer
@@ -99,7 +114,7 @@ class IIXEnumerable
 IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
 IIXEnumerable : Current() CXItem
 IIXEnumerable : Reset()
-IIXEnumerable <|-- CIXItemsConsumed
+IIXEnumerable <|-- CIXItemsEnumerator
 IIXEnumerable <|-- CIXItemsBatched
 IIXEnumerable <|-- CIXItemsChunked
 
@@ -114,8 +129,8 @@ class DataRetrieval
 <<external>> DataRetrieval
 IIXDataRetrieval <|-- DataRetrieval
 
-CIXItemsConsumed o-- CIXItemsBatched
-CIXItemsConsumed : Create( IIXCallback )
+CIXItemsEnumerator o-- CIXItemsBatched
+CIXItemsEnumerator : Create( IIXCallback )
 
 CIXItemsBatched o-- CIXItemsChunked
 CIXItemsBatched : Create( IIXCallback )
