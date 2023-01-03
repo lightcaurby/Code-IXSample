@@ -93,6 +93,7 @@ class dtsDataSource
 <<interface>> dtsDataSource
 dtsDataSource : getNextDoc()
 dtsDataSource : rewind()
+dtsDataSource <|-- IIXDataSource
 
 class Indexer
 <<service>> Indexer
