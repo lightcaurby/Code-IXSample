@@ -172,20 +172,11 @@ namespace
     {
         if( up == false )
             throw CIXException( iLine, "Error" );
-        return up;
-    }
-
-    template< typename T >
-    shared_ptr< T > IX_SHP_TRY_IMPL( shared_ptr< T > shp, int iLine )
-    {
-        if( shp == false )
-            throw CIXException( iLine, "Error" );
-        return shp;
+        return std::move( up );
     }
 };
 #define IX_TRY( res ) IX_TRY_IMPL( res, __LINE__ )
-#define IX_UP_TRY( up ) IX_UP_TRY_IMPL( up, __LINE__ )
-#define IX_SHP_TRY( shp ) IX_SHP_TRY_IMPL( shp, __LINE__ )
+#define IX_UP_TRY( up ) IX_UP_TRY_IMPL( std::move( up ), __LINE__ )
 
 // Indexing engine interface.
 class IIXIndexing
@@ -622,14 +613,14 @@ class CIXItemsChunked : public IIXEnumerable, public CLifeReporterAgent< CIXItem
 public:
 
     // Factory method.
-    static IIXEnumerable::SHP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return IIXEnumerable::SHP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsChunked( shpCB ) ) );
+        return IIXEnumerable::UP( static_cast< IIXEnumerable* >( new CIXItemsChunked( shpCB ) ) );
     }
 
     // Destructor.
@@ -771,14 +762,14 @@ class CIXItemsBatched : public IIXEnumerable, public CLifeReporterAgent< CIXItem
 public:
 
     // Factory method.
-    static IIXEnumerable::SHP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return IIXEnumerable::SHP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsBatched( shpCB ) ) );
+        return IIXEnumerable::UP( static_cast< IIXEnumerable* >( new CIXItemsBatched( shpCB ) ) );
     }
 
     // Destructor.
@@ -793,7 +784,7 @@ public:
     virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
     {
         // Proceed the enumerator.
-        CResult< CIXAvailability > res = m_shpLowerLayerEnum->MoveNext( ltLatestSeen );
+        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
 
         // Track the return value.
         CIXAvailability availability = IX_TRY( res );
@@ -857,7 +848,7 @@ public:
     virtual CResult< CIXItem > Current() const override
     {
         // Delegate to the lower layer.
-        return m_shpLowerLayerEnum->Current();
+        return m_upLowerLayerEnum->Current();
     }
 
     // Resets the enumerator.
@@ -865,7 +856,7 @@ public:
     {
         // Create the lower enumerator layer.
         cout << Indent( 1 ) << "Chunk being initialized." << endl;
-        m_shpLowerLayerEnum = IX_SHP_TRY( CIXItemsChunked::Create( shpCB ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB ) );
     }
 
 private:
@@ -900,7 +891,7 @@ private:
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
-    IIXEnumerable::SHP m_shpLowerLayerEnum;  // The lower layer enumerator.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
     int m_iCurrentCount;  // The number of the processed items.
 };
 
@@ -910,14 +901,14 @@ class CIXItemsEnumerator : public IIXEnumerable, public CLifeReporterAgent< CIXI
 public:
 
     // Factory method.
-    static IIXEnumerable::SHP Create( IIXCallback::SHP shpCB )
+    static IIXEnumerable::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return IIXEnumerable::SHP();
+            return IIXEnumerable::UP();
 
         // Delegate.
-        return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsEnumerator( shpCB ) ) );
+        return IIXEnumerable::UP( static_cast< IIXEnumerable* >( new CIXItemsEnumerator( shpCB ) ) );
     }
 
     // Destructor.
@@ -933,7 +924,7 @@ public:
     {
 
         // Delegate to the lower layer enumerator.
-        CResult< CIXAvailability > res = m_shpLowerLayerEnum->MoveNext( ltLatestSeen );
+        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
         CIXAvailability availability = IX_TRY( res );
 
         // Check the current availability first.
@@ -957,7 +948,7 @@ public:
     virtual CResult< CIXItem > Current() const override
     {
         // Delegate to the lower layer.
-        return m_shpLowerLayerEnum->Current();
+        return m_upLowerLayerEnum->Current();
     }
 
     // Resets the enumerator.
@@ -965,7 +956,7 @@ public:
     {
         // Create the lower enumerator layer.
         cout << "Batch being initialized." << endl;
-        m_shpLowerLayerEnum = IX_SHP_TRY( CIXItemsBatched::Create( shpCB ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsBatched::Create( shpCB ) );
     }
 
 private:
@@ -983,7 +974,7 @@ private:
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
-    IIXEnumerable::SHP m_shpLowerLayerEnum;  // The lower layer enumerator.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
 };
 
 // Indexer job interface.
@@ -1045,11 +1036,11 @@ public:
 
         // Create the lower enumerator layer.
         cout << "Enumerator being initialized." << endl;
-        m_shpLowerLayerEnum = IX_SHP_TRY( CIXItemsEnumerator::Create( shpCB ) );
+        m_upLowerLayerEnum = IX_UP_TRY( CIXItemsEnumerator::Create( shpCB ) );
     }
 
 protected:
-    IIXEnumerable::SHP m_shpLowerLayerEnum;  // The lower layer enumerator.
+    IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
     IIXCallback::SHP m_shpCB;  // Callback interface.
 };
 
@@ -1067,10 +1058,10 @@ public:
     virtual void RunImpl() override
     {
         // Proceed with the enumerator.
-        while( IX_TRY( m_shpLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
+        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
         {
             // Get the current item.
-            const CIXItem& item = IX_TRY( m_shpLowerLayerEnum->Current() );
+            const CIXItem& item = IX_TRY( m_upLowerLayerEnum->Current() );
 
             // Process the current item.
             IX_TRY( this->Process( item ) );  // Return value ignored.
@@ -1101,14 +1092,14 @@ class CIXJob : public IIXJob, public TAspect, public CLifeReporterAgent< CIXJob<
 public:
 
     // Factory method.
-    static IIXJob::SHP Create( IIXCallback::SHP shpCB )
+    static IIXJob::UP Create( IIXCallback::SHP shpCB )
     {
         // Sanity check.
         if( shpCB == nullptr )
-            return IIXJob::SHP();
+            return IIXJob::UP();
 
         // Delegate.
-        return IIXJob::SHP( static_cast< IIXJob* >( new CIXJob( shpCB ) ) );
+        return IIXJob::UP( static_cast< IIXJob* >( new CIXJob( shpCB ) ) );
     }
 
     // Destructor.
@@ -1192,7 +1183,7 @@ void RunIndexingRequest()
         // Initialize the job.
         cout << "Job being created." << endl;
         typedef CIXJob< CAIXJobCombined > CIXJOB;
-        CIXJOB::SHP shpJob = IX_SHP_TRY( CIXJOB::Create( shpCB ) );
+        CIXJOB::SHP shpJob = IX_UP_TRY( CIXJOB::Create( shpCB ) );
 
         // Run the job.
         shpJob->Run();  // void
