@@ -1,9 +1,11 @@
 // IteratorSample.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+#include <map>
 #include <iostream>
 #include <vector>
 #include <exception>
+#include <typeinfo>
 
 using namespace std;
 
@@ -68,6 +70,11 @@ public:
     // Default constructor.
     CMF_LogicalTimestamp()
         : m_iValue( 0 )
+    {
+    }
+
+    // Destructor.
+    virtual ~CMF_LogicalTimestamp()
     {
     }
 
@@ -193,10 +200,115 @@ public:
 
     // Commits the current state.
     virtual bool Commit( const CMF_LogicalTimestamp& lt, int iActualCount ) = 0;
+
+    // Destructor.
+    virtual ~IIXIndexing()
+    {
+    }
+ };
+
+// Helper class for reporting object lifecycles.
+class CLifeReporter
+{
+public:
+
+    // Constructor.
+    CLifeReporter()
+    {
+    }
+
+    // Destructor.
+    virtual ~CLifeReporter()
+    {
+    }
+
+    // Tracks a constructor call.
+    static void ConstructorCalled( const char* pszClass )
+    {
+        // Track.
+        s_mapCreated[ pszClass ]++;
+    }
+
+    // Tracks a destructor call.
+    static void DestructorCalled( const char* pszClass )
+    {
+        // Track.
+        s_mapDestroyed[ pszClass ]++;
+    }
+
+    // Runs the report.
+    static void Report()
+    {
+        // Find out the longest class name.
+        size_t stMaxLen = 0;
+        for( const auto& p : s_mapCreated )
+            stMaxLen = std::max( stMaxLen, p.first.length() );
+        size_t stMaxLogicalIndents = ( stMaxLen + 1 ) / 3;
+
+        // Loop through creations.
+        cout << endl;
+        for( const auto& p : s_mapCreated )
+        {
+            // Locals.
+            string szClass = p.first;
+            int iConstructions = p.second;
+            int iDestructions = 0;
+            int iSaldo = iConstructions;
+
+            // Try to find matching destructions.
+            map< string, int >::const_iterator q = s_mapDestroyed.find( szClass );
+            if( q != s_mapDestroyed.end() )
+            {
+                // Collect the information.
+                iDestructions = q->second;
+                iSaldo = iConstructions - iDestructions;
+
+            }  // end if
+
+            // Output the info.
+            size_t stAdditionalIndentsRequired = stMaxLogicalIndents - ( ( szClass.length() + 1 ) / 3 );
+            cout << szClass << ":" <<
+                    Indent( stAdditionalIndentsRequired ) <<
+                    "\t" << iSaldo << " remaining" << 
+                    "\t" << iConstructions << " up, " << 
+                    "\t" << iDestructions << " down." <<
+                    endl;
+
+        }  // end for
+    }
+
+protected:
+    static map< string, int > s_mapCreated;  // Creations by class.
+    static map< string, int > s_mapDestroyed;  // Destructions by class.
+};
+
+// Initialization of static members.
+map< string, int > CLifeReporter::s_mapCreated;
+map< string, int > CLifeReporter::s_mapDestroyed;
+
+// Helper class for tracking object lifecycles.
+template< typename T >
+class CLifeReporterAgent
+{
+public:
+
+    // Constructor.
+    CLifeReporterAgent()
+    {
+        // Track.
+        CLifeReporter::ConstructorCalled( typeid( T ).name() );  // void
+    }
+
+    // Destructor.
+    virtual ~CLifeReporterAgent()
+    {
+        // Track.
+        CLifeReporter::DestructorCalled( typeid( T ).name() );  // void
+    }
 };
 
 // Indexing engine implementation.
-class CIXIndexing : public IIXIndexing
+class CIXIndexing : public IIXIndexing, public CLifeReporterAgent< CIXIndexing >
 {
 public:
 
@@ -204,17 +316,15 @@ public:
     CIXIndexing()
         : m_iItemsIndexed( 0 )
     {
-        cout << "*** construct CIXIndexing" << endl;
     }
 
     // Destructor.
     virtual ~CIXIndexing()
     {
-        cout << "*** destruct CIXIndexing" << endl;
         cout << endl << "Indexed " << m_iItemsIndexed << " items." << endl;
     }
 
-    // IIXIndexing
+// IIXIndexing
 public:
 
     // Indexes data.
@@ -269,6 +379,11 @@ public:
         int iCount,
         OUT vector< CIXItem >& vecItems
     ) = 0;
+
+    // Destructor.
+    virtual ~IIXDataRetrieval()
+    {
+    }
 };
 
 // Helper class to encapsulate the data availability status during enumeration.
@@ -303,7 +418,7 @@ private:
 };
 
 // Data retrieval implementation.
-class CIXDataRetrieval : public IIXDataRetrieval
+class CIXDataRetrieval : public IIXDataRetrieval, public CLifeReporterAgent< CIXDataRetrieval >
 {
 public:
 
@@ -311,13 +426,11 @@ public:
     CIXDataRetrieval()
         : m_iTotalCount( 0 )
     {
-        cout << "*** construct CIXDataRetrieval" << endl;
     }
 
     // Destructor.
     virtual ~CIXDataRetrieval()
     {
-        cout << "*** destruct CIXDataRetrieval" << endl;
     }
 
 // IIXDataRetrieval
@@ -403,16 +516,26 @@ public:
 
     // Accesses the indexing engine.
     virtual const IIXIndexing::SHP AccessIndexing() = 0;
+
+    // Destructor.
+    virtual ~IIXCallback()
+    {
+    }
 };
 
 // Callback implementation.
-class CIXCallback : public IIXCallback
+class CIXCallback : public IIXCallback, public CLifeReporterAgent< CIXCallback >
 {
 public:
 
     // Constructor.
     CIXCallback( IIXDataRetrieval::SHP shpDataRetrieval, IIXIndexing::SHP shpIndexing, const CMF_LogicalTimestamp& ltLatestSeen )
         : m_shpDataRetrieval( shpDataRetrieval ), m_shpIndexing( shpIndexing ), m_ltLatestSeen( ltLatestSeen )
+    {
+    }
+
+    // Destructor.
+    virtual ~CIXCallback()
     {
     }
 
@@ -486,10 +609,15 @@ public:
 
     // Resets the enumerator.
     virtual void Reset( IIXCallback::SHP shpCB ) = 0;
+
+    // Destructor.
+    virtual ~IIXEnumerable()
+    {
+    }
 };
 
 // Enumerator object for chunked item data.
-class CIXItemsChunked : public IIXEnumerable
+class CIXItemsChunked : public IIXEnumerable, public CLifeReporterAgent< CIXItemsChunked >
 {
 public:
 
@@ -502,6 +630,11 @@ public:
 
         // Delegate.
         return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsChunked( shpCB ) ) );
+    }
+
+    // Destructor.
+    virtual ~CIXItemsChunked()
+    {
     }
 
 // IIXEnumerable
@@ -590,16 +723,8 @@ private:
     CIXItemsChunked( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
-        cout << "*** construct CIXItemsChunked" << endl;
-
         // Delegate.
         Reset( m_shpCB );
-    }
-
-    // Destructor.
-    virtual ~CIXItemsChunked()
-    {
-        cout << "*** destruct CIXItemsChunked" << endl;
     }
 
     // Attempts to retrieve data to the local container.
@@ -641,7 +766,7 @@ private:
 };
 
 // Enumerator object for batched item data.
-class CIXItemsBatched : public IIXEnumerable
+class CIXItemsBatched : public IIXEnumerable, public CLifeReporterAgent< CIXItemsBatched >
 {
 public:
 
@@ -654,6 +779,11 @@ public:
 
         // Delegate.
         return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsBatched( shpCB ) ) );
+    }
+
+    // Destructor.
+    virtual ~CIXItemsBatched()
+    {
     }
 
 // IIXEnumerable
@@ -747,16 +877,8 @@ private:
     CIXItemsBatched( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB ), m_iCurrentCount( 0 )
     {
-        cout << "*** construct CIXItemsBatched" << endl;
-
         // Delegate.
         Reset( m_shpCB );  // void
-    }
-
-    // Destructor.
-    virtual ~CIXItemsBatched()
-    {
-        cout << "*** destruct CIXItemsBatched" << endl;
     }
 
     // Commits the current progress.
@@ -783,7 +905,7 @@ private:
 };
 
 // Top level enumerator object.
-class CIXItemsEnumerator : public IIXEnumerable
+class CIXItemsEnumerator : public IIXEnumerable, public CLifeReporterAgent< CIXItemsEnumerator >
 {
 public:
 
@@ -796,6 +918,11 @@ public:
 
         // Delegate.
         return IIXEnumerable::SHP( static_cast< IIXEnumerable* >( new CIXItemsEnumerator( shpCB ) ) );
+    }
+
+    // Destructor.
+    virtual ~CIXItemsEnumerator()
+    {
     }
 
 // IIXEnumerable
@@ -850,16 +977,8 @@ private:
     CIXItemsEnumerator( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
-        cout << "*** construct CIXItemsEnumerator" << endl;
-
         // Delegate.
         Reset( m_shpCB );  // void
-    }
-
-    // Destructor.
-    virtual ~CIXItemsEnumerator()
-    {
-        cout << "*** destruct CIXItemsEnumerator" << endl;
     }
 
 private:
@@ -881,6 +1000,10 @@ public:
     // Runs the job.
     virtual void Run() = 0;
 
+    // Destructor.
+    virtual ~IIXJob()
+    {
+    }
 };
 
 // Helper aspect interface
@@ -896,6 +1019,11 @@ public:
 
     // Processes the specified item.
     virtual CResult< bool > Process( const CIXItem& item ) = 0;
+
+    // Destructor.
+    virtual ~IAIXJob()
+    {
+    }
 };
 
 
@@ -903,6 +1031,11 @@ public:
 class CAIXJobBase : public IAIXJob
 {
 public:
+
+    // Destructor.
+    virtual ~CAIXJobBase()
+    {
+    }
 
     // Resets the aspect.
     virtual void Reset( IIXCallback::SHP shpCB ) override
@@ -925,6 +1058,11 @@ class CAIXJobCombined : public CAIXJobBase
 {
 public:
 
+    // Destructor.
+    virtual ~CAIXJobCombined()
+    {
+    }
+
     // Runs the job.
     virtual void RunImpl() override
     {
@@ -945,6 +1083,11 @@ class CAIXJobDtSearch : public CAIXJobBase
 {
 public:
 
+    // Destructor.
+    virtual ~CAIXJobDtSearch()
+    {
+    }
+
     // Runs the job.
     virtual void RunImpl() override
     {
@@ -952,8 +1095,8 @@ public:
 };
 
 // Indexer job.
-//***template< typename TAspect >
-class CIXJob : public IIXJob, public CAIXJobCombined //***TAspect
+template< typename TAspect >
+class CIXJob : public IIXJob, public TAspect, public CLifeReporterAgent< CIXJob< TAspect > >
 {
 public:
 
@@ -968,6 +1111,11 @@ public:
         return IIXJob::SHP( static_cast< IIXJob* >( new CIXJob( shpCB ) ) );
     }
 
+    // Destructor.
+    virtual ~CIXJob()
+    {
+    }
+
 // IIXJob
 public:
 
@@ -976,7 +1124,7 @@ public:
     {
         // Delegate.
         CAIXJobCombined::RunImpl();  // void
-        //***TAspect::RunImpl();  // void
+        TAspect::RunImpl();  // void
     }
 
 // AIXJob
@@ -1008,32 +1156,23 @@ private:
     CIXJob( IIXCallback::SHP shpCB ) :
         m_shpCB( shpCB )
     {
-        cout << "*** construct CIXJob" << endl;
-
         // Delegate.
         Reset( m_shpCB );  // void
-    }
-
-    // Destructor.
-    virtual ~CIXJob()
-    {
-        cout << "*** destruct CIXJob" << endl;
     }
 
     // Resets the enumerator.
     void Reset( IIXCallback::SHP shpCB )
     {
         // Delegate to the aspect.
-        CAIXJobCombined::Reset( shpCB );
-        //***TAspect::Reset( shpCB );
+        TAspect::Reset( shpCB );
     }
 
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
 };
 
-// Main program.
-int main()
+// Runs an indexing request.
+void RunIndexingRequest()
 {
     // Data retrieval engine.
     shared_ptr< IIXDataRetrieval > shpDataRetrieval = shared_ptr< IIXDataRetrieval >( new CIXDataRetrieval );
@@ -1052,21 +1191,26 @@ int main()
     {
         // Initialize the job.
         cout << "Job being created." << endl;
-        typedef CIXJob CIXJOB;
-        //***typedef CIXJob< CAIXJobCombined > CIXJOB;
+        typedef CIXJob< CAIXJobCombined > CIXJOB;
         CIXJOB::SHP shpJob = IX_SHP_TRY( CIXJOB::Create( shpCB ) );
-        shpJob.reset();
 
         // Run the job.
-        //***shpJob->Run();  // void
+        shpJob->Run();  // void
      }
     catch( CIXException ixex )
     {
         cout << "*** CIXException on line " << ixex.where() << endl;
         cout << ixex.what();
     }
+}
 
-    cout << shpCB.use_count() << endl;
-    cout << shpDataRetrieval.use_count() << endl;
+// Main program.
+int main()
+{
+    // Run an indexing request.
+    RunIndexingRequest();  // void
+
+    // Report object lifes.
+    CLifeReporter::Report();  // void
 }
 
