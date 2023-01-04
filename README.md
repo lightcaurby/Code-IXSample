@@ -62,8 +62,8 @@ class IIXCallback
 <<interface>> IIXCallback
 
 
-class TAspect
-<<aspect>> TAspect
+class TAIXJob
+<<aspect>> TAIXJob
 
 class IIXJob
 <<interface>> IIXJob
@@ -71,16 +71,16 @@ IIXJob : Run()
 IIXJob <|-- CIXJob
 CIXJob : Create( IXCallback )
 CIXJob : Process( CIXItem)
-TAspect <|-- CIXJob
-TAspect : RunImpl()
-TAspect -- CAIXJobCombined : specialized
+TAIXJob <|-- CIXJob
+TAIXJob : RunImpl()
+TAIXJob -- CAIXJobCombined : specialized
 CAIXJobCombined : RunImpl()
-TAspect -- CAIXJobDtSearch : specialized
+TAIXJob -- CAIXJobDtSearch : specialized
 CAIXJobDtSearch : RunImpl()
 CAIXJobDtSearch : getNextDoc()
 CAIXJobDtSearch : rewind()
 CAIXJobDtSearch : OnProgressUpdate()
-CAIXJobBase <|-- TAspect
+CAIXJobBase <|-- TAIXJob
 CAIXJobBase : Reset( ...)
 class CAIXJob
 <<interface>> CAIXJob

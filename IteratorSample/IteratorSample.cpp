@@ -1085,9 +1085,9 @@ public:
     }
 };
 
-// Indexer job.
-template< typename TAspect >
-class CIXJob : public IIXJob, public TAspect, public CLifeReporterAgent< CIXJob< TAspect > >
+// Indexer job based on a templated aspect.
+template< typename TAIXJob >
+class CIXJob : public IIXJob, public TAIXJob, public CLifeReporterAgent< CIXJob< TAIXJob > >
 {
 public:
 
@@ -1115,7 +1115,7 @@ public:
     {
         // Delegate.
         CAIXJobCombined::RunImpl();  // void
-        TAspect::RunImpl();  // void
+        TAIXJob::RunImpl();  // void
     }
 
 // AIXJob
@@ -1155,7 +1155,7 @@ private:
     void Reset( IIXCallback::SHP shpCB )
     {
         // Delegate to the aspect.
-        TAspect::Reset( shpCB );
+        TAIXJob::Reset( shpCB );
     }
 
 private:
