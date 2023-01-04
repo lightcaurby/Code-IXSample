@@ -417,7 +417,7 @@ public:
 
     // Constructor.
     CIXDataRetrieval()
-        : m_iTotalCount( 0 ), m_iAcceptanceThreshold( 100 )
+        : m_iTotalCount( 0 ), m_iAcceptanceThreshold( 0 )
     {
         // Define the random number range.
         m_distr = std::uniform_int_distribution< int >( 1, 100 );
@@ -758,7 +758,11 @@ private:
         {
             // Construct the availability result.
             retval = CIXAvailability( 
-                    m_itr != m_vecItems.end() ? CIXAvailability::Available::Yes : CIXAvailability::Available::Perhaps,
+                    m_itr != m_vecItems.end()
+                            ? CIXAvailability::Available::Yes 
+                            : m_bExhausted
+                                    ? CIXAvailability::Available::No
+                                    : CIXAvailability::Available::Perhaps,
                     m_ltLatestKnown );
         }
 
@@ -851,8 +855,8 @@ public:
                 else
                 {
                     // Sanity check.
-                    if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
-                        return CResult< CIXAvailability >( false, res.AccessRetVal() );
+                    //***if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
+                    //***    return CResult< CIXAvailability >( false, res.AccessRetVal() );
 
                     // Forward the timestamp.
                     m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
@@ -994,8 +998,8 @@ public:
             if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps )
             {
                 // Sanity check.
-                if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
-                    return CResult< CIXAvailability >( false, res.AccessRetVal() );
+                //***if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
+                //***    return CResult< CIXAvailability >( false, res.AccessRetVal() );
 
                 // Forward the timestamp.
                 m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
