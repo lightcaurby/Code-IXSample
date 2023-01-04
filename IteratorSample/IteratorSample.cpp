@@ -417,7 +417,7 @@ public:
 
     // Constructor.
     CIXDataRetrieval()
-        : m_iTotalCount( 0 ), m_iAcceptanceThreshold( 0 )
+        : m_iTotalCount( 0 ), m_iAcceptanceThreshold( 100 )
     {
         // Define the random number range.
         m_distr = std::uniform_int_distribution< int >( 1, 100 );
@@ -608,7 +608,7 @@ public:
     typedef unique_ptr< IIXEnumerable > UP;
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) = 0;
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) = 0;
     
     // Gets the current item.
     virtual CResult< CIXItem > Current() const = 0;
@@ -647,10 +647,8 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
     {
-        cout << "CIXItemsChunked::MoveNext " << iLevel << endl;
-
         // Initialize or proceed the enumerator. 
         CIXAvailability retval( CIXAvailability::Available::No, ltLatestSeen );
         if( m_bRetrieved == false )
@@ -801,70 +799,83 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen_ ) override
     {
-        cout << "CIXItemsBatched::MoveNext A " << iLevel << endl;
+        // Locals.
+        CResult< CIXAvailability > res( true, CIXAvailability() );
+        CIXAvailability availability;
+        CMF_LogicalTimestamp ltLatestSeen = ltLatestSeen_;
+        bool bContinueWithNewerTimestamp = true;
 
-        // Proceed the enumerator.
-        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen, 1 );
-
-        // Track the return value.
-        CIXAvailability availability = IX_TRY( res );
-        bool bCommittedSuccessfully = false;
-        switch( availability.AccessAvailability() )
+        // Loop while lower layers do not return a definitive Yes/No answer.
+        while( bContinueWithNewerTimestamp )
         {
+            // Reset the continuation flag.
+            bContinueWithNewerTimestamp = false;
 
-        // Data available.
-        case CIXAvailability::Available::Yes:
+            // Proceed the enumerator.
+            res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
 
-            // Track the number of the received items.
-            m_iCurrentCount++;
-            break;
-
-        // No data available.
-        case CIXAvailability::Available::No:
-
-            // Data source has been exhausted, so we need to commit the status
-            // if we have received any items.
-            // TODO: FastForward?
-            if( m_iCurrentCount > 0 )
-                bCommittedSuccessfully = IX_TRY( Commit( ltLatestSeen ) );
-            break;
-
-         // Perhaps data available.
-        case CIXAvailability::Available::Perhaps:
-
-            // There might be more data available, but in order to determine that we 
-            // need to re-initialize the lower layers when we proceed the enumerator
-            // next time. Before doing that, we must commit the current status if we
-            // have received more items than the batch size.
-            if( m_iCurrentCount > 0 && m_iCurrentCount >= m_shpCB->GetBatchSize() )
+            // Track the return value.
+            availability = IX_TRY( res );
+            switch( availability.AccessAvailability() )
             {
-                // Commit the current status.
-                bCommittedSuccessfully = IX_TRY( Commit( ltLatestSeen ) );
-            }
-            else
-            {
-                // Forward the timestamp.
-                m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
 
-                // Reset the lower layers.
-                Reset( m_shpCB );  // void
+            // Data available.
+            case CIXAvailability::Available::Yes:
 
-                // Recurse.
-                cout << "Recurse with " << m_shpCB->AccessLatestSeen().Get() << endl;
-                res = MoveNext( m_shpCB->AccessLatestSeen(), iLevel + 1 );
+                // Track the number of the received items.
+                m_iCurrentCount++;
+                break;
 
-            }  // end if
+            // No data available.
+            case CIXAvailability::Available::No:
 
-        break;
+                // Data source has been exhausted, so we need to commit the status.
+                // TODO: FastForward?
+                IX_TRY( Commit( ltLatestSeen ) );  // Return value ignored.
+                break;
 
-        default:
-            break;
+            // Perhaps data available.
+            case CIXAvailability::Available::Perhaps:
 
-        }  // end switch
+                // There might be more data available, but in order to determine that we 
+                // need to re-initialize the lower layers when we proceed the enumerator
+                // next time. Before doing that, we must commit the current status if we
+                // have received more items than the batch size.
+                if( IsIntermediateCommitNeeded() )
+                {
+                    // Commit the current status.
+                    IX_TRY( Commit( ltLatestSeen ) );  // Return value ignored.
+                }
+                else
+                {
+                    // Sanity check.
+                    if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
+                        return CResult< CIXAvailability >( false, res.AccessRetVal() );
 
-        cout << "CIXItemsBatched::MoveNext B " << iLevel << endl;
+                    // Forward the timestamp.
+                    m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
+
+                    // Reset the lower layers.
+                    Reset( m_shpCB );  // void
+
+                    // Use the updated timestamp.
+                    ltLatestSeen = m_shpCB->AccessLatestSeen();
+
+                    // Indicate that the loop should continue.
+                    bContinueWithNewerTimestamp = true;
+
+                }  // end if
+
+                break;
+
+            default:
+                break;
+
+            }  // end switch
+
+        }  // end while
 
         return res;
     }
@@ -882,6 +893,7 @@ public:
         // Create the lower enumerator layer.
         cout << Indent( 1 ) << "Chunk being initialized." << endl;
         m_upLowerLayerEnum = IX_UP_TRY( CIXItemsChunked::Create( shpCB ) );
+        m_iChunks++;
     }
 
 private:
@@ -891,7 +903,7 @@ private:
 
     // Constructor.
     CIXItemsBatched( IIXCallback::SHP shpCB ) :
-        m_shpCB( shpCB ), m_iCurrentCount( 0 )
+        m_shpCB( shpCB ), m_iCurrentCount( 0 ), m_iChunks( 0 )
     {
         // Delegate.
         Reset( m_shpCB );  // void
@@ -914,9 +926,24 @@ private:
         return CResult< bool >( true, bSuccess );
     }
 
+    // Is intermediate commit needed?
+    bool IsIntermediateCommitNeeded()
+    {
+        // Is the batch full?
+        bool bBatchFull =
+                m_iCurrentCount > 0 && m_iCurrentCount >= m_shpCB->GetBatchSize();
+
+        // Do the chunks equal to a batch (even though we haven't seen them all)?
+        bool bChunksEqualToBatch =
+                m_iChunks * m_shpCB->GetChunkSize() >= m_shpCB->GetBatchSize();
+
+        return bBatchFull || bChunksEqualToBatch;
+    }
+
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
     IIXEnumerable::UP m_upLowerLayerEnum;  // The lower layer enumerator.
+    int m_iChunks;  // The number of chunks used.
     int m_iCurrentCount;  // The number of the processed items.
 };
 
@@ -945,27 +972,46 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen_ ) override
     {
-        cout << "CIXItemsEnumerator::MoveNext " << iLevel << endl;
+        // Locals.
+        CResult< CIXAvailability > res( true, CIXAvailability() );
+        CIXAvailability availability;
+        CMF_LogicalTimestamp ltLatestSeen = ltLatestSeen_;
+        bool bContinueWithNewerTimestamp = true;
 
-        // Delegate to the lower layer enumerator.
-        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen, 1 );
-        CIXAvailability availability = IX_TRY( res );
-
-        // Check the current availability first.
-        if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps )
+        // Loop while lower layers do not return a definitive Yes/No answer.
+        while( bContinueWithNewerTimestamp )
         {
-            // Forward the timestamp.
-            m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
+            // Reset the continuation flag.
+            bContinueWithNewerTimestamp = false;
 
-            // Reset the lower layers.
-            Reset( m_shpCB );  // void
+            // Delegate to the lower layer enumerator.
+            res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
+            availability = IX_TRY( res );
 
-            // Recurse.
-            res = MoveNext( m_shpCB->AccessLatestSeen(), iLevel + 1 );
+            // Check the current availability first.
+            if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps )
+            {
+                // Sanity check.
+                if( availability.AccessLatestKnownTimestamp().IsLaterThan( ltLatestSeen ) == false )
+                    return CResult< CIXAvailability >( false, res.AccessRetVal() );
 
-        }  // end if
+                // Forward the timestamp.
+                m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
+
+                // Reset the lower layers.
+                Reset( m_shpCB );  // void
+
+                // Use the updated timestamp.
+                ltLatestSeen = m_shpCB->AccessLatestSeen();
+
+                // Indicate that the looping should continue.
+                bContinueWithNewerTimestamp = true;
+
+            }  // end if
+
+        }  // end while
 
         return res;
     }
@@ -1084,7 +1130,7 @@ public:
     virtual void RunImpl() override
     {
         // Proceed with the enumerator.
-        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen(), 1 ) ).AccessAvailability() != CIXAvailability::Available::No )
+        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
         {
             // Get the current item.
             const CIXItem& item = IX_TRY( m_upLowerLayerEnum->Current() );
@@ -1140,7 +1186,6 @@ public:
     virtual void Run() override
     {
         // Delegate.
-        CAIXJobCombined::RunImpl();  // void
         TAIXJob::RunImpl();  // void
     }
 
