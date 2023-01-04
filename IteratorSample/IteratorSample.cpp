@@ -6,6 +6,7 @@
 #include <vector>
 #include <exception>
 #include <typeinfo>
+#include <random>
 
 using namespace std;
 
@@ -368,6 +369,7 @@ public:
     virtual CResult< CMF_LogicalTimestamp > RetrieveData(
         const CMF_LogicalTimestamp& ltLatestSeen,
         int iCount,
+        OUT bool& bExhausted,
         OUT vector< CIXItem >& vecItems
     ) = 0;
 
@@ -386,8 +388,8 @@ public:
     enum class Available { Yes, Perhaps, No };
 
     // Constructor.
-    CIXAvailability( Available available, const CMF_LogicalTimestamp& ltLatestVisible ) :
-        m_available( available ), m_ltLatestVisible( ltLatestVisible )
+    CIXAvailability( Available available, const CMF_LogicalTimestamp& ltLatestKnown ) :
+        m_available( available ), m_ltLatestKnown( ltLatestKnown )
     {
     }
 
@@ -400,12 +402,12 @@ public:
     // Accesses the availability status.
     Available AccessAvailability() const { return m_available;  }
 
-    // Accesses the latest visible timestamp value.
-    const CMF_LogicalTimestamp& AccessLatestVisibleTimestamp() const { return m_ltLatestVisible; }
+    // Accesses the latest known timestamp value.
+    const CMF_LogicalTimestamp& AccessLatestKnownTimestamp() const { return m_ltLatestKnown; }
 
 private:
     Available m_available;  // Availability status.
-    CMF_LogicalTimestamp m_ltLatestVisible;  // Latest visible timestamp.
+    CMF_LogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
 };
 
 // Data retrieval implementation.
@@ -415,8 +417,10 @@ public:
 
     // Constructor.
     CIXDataRetrieval()
-        : m_iTotalCount( 0 )
+        : m_iTotalCount( 0 ), m_iAcceptanceThreshold( 0 )
     {
+        // Define the random number range.
+        m_distr = std::uniform_int_distribution< int >( 1, 100 );
     }
 
     // Destructor.
@@ -437,49 +441,60 @@ public:
     virtual CResult< CMF_LogicalTimestamp > RetrieveData(
         const CMF_LogicalTimestamp& ltLatestSeen,
         int iCount,
+        OUT bool& bExhausted,
         OUT vector< CIXItem >& vecItems
     ) override
     {
         // Reset out params.
+        bExhausted = false;
         vecItems.clear();
 
-        // Latest visible timestamp after the initial threshold.
-        CMF_LogicalTimestamp ltLatestVisible = ltLatestSeen;
+        // Latest known timestamp after the initial threshold.
+        CMF_LogicalTimestamp ltLatestKnown = ltLatestSeen;
 
         // Determine the timestamp threshold.
         int iStart = ltLatestSeen.Get() + 1;
 
         // Retrieve the data.
-        vecItems.reserve( iCount );
-        for( int iItem = iStart; iItem < iStart + iCount; iItem++ )
+        vecItems.reserve( iCount * 2 );
+        int iItem = 0;
+        for( iItem = iStart; iItem < iStart + iCount; iItem++ )
         {
             // Check the overall availability of data.
             if( m_iTotalCount >= GetGloballyAvailable() )
+            {
+                bExhausted = true;
                 break;
 
+            }  // end if
+
             // Store the data.
-            ltLatestVisible = CMF_LogicalTimestamp( iItem );
-            vecItems.push_back( CIXItem( iItem * 2, iItem * 3, iItem * 4, ltLatestVisible ) );
+            ltLatestKnown = CMF_LogicalTimestamp( iItem );
+            if( m_distr( m_rd ) > m_iAcceptanceThreshold )
+                vecItems.push_back( CIXItem( iItem * 2, iItem * 3, iItem * 4, ltLatestKnown ) );
 
             // Keep track of the count.
             m_iTotalCount++;
 
         }  // end for
-
+        
         // Debug output.
         cout << Indent( 2 ) <<
                 "Retrieved " <<
                 vecItems.size() <<
-                " items. Latest visible timestamp is " <<
-                ltLatestVisible.Get() <<
+                " items. Latest known timestamp is " <<
+                ltLatestKnown.Get() <<
                 "." <<
                 endl;
 
-        return CResult< CMF_LogicalTimestamp >( true, ltLatestVisible );
+        return CResult< CMF_LogicalTimestamp >( true, ltLatestKnown );
     }
 
 private:
     int m_iTotalCount;  // Total number of retrieved items.
+    std::random_device m_rd;  // Obtain a random number from hardware.
+	std::uniform_int_distribution< int > m_distr;  // Define the range.
+    int m_iAcceptanceThreshold;  // Acceptance threshold.
 };
 
 // Callback interface.
@@ -593,7 +608,7 @@ public:
     typedef unique_ptr< IIXEnumerable > UP;
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) = 0;
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) = 0;
     
     // Gets the current item.
     virtual CResult< CIXItem > Current() const = 0;
@@ -632,8 +647,10 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
     {
+        cout << "CIXItemsChunked::MoveNext " << iLevel << endl;
+
         // Initialize or proceed the enumerator. 
         CIXAvailability retval( CIXAvailability::Available::No, ltLatestSeen );
         if( m_bRetrieved == false )
@@ -650,10 +667,10 @@ public:
 
             // Determine the continuation status.
             retval = m_itr != m_vecItems.end()
-                    ? CIXAvailability( CIXAvailability::Available::Yes, m_ltLatestVisible )
-                    : m_vecItems.size() < m_shpCB->GetChunkSize()
-                            ? CIXAvailability( CIXAvailability::Available::No, m_ltLatestVisible )
-                            : CIXAvailability( CIXAvailability::Available::Perhaps, m_ltLatestVisible );
+                    ? CIXAvailability( CIXAvailability::Available::Yes, m_ltLatestKnown )
+                    : m_bExhausted
+                            ? CIXAvailability( CIXAvailability::Available::No, m_ltLatestKnown )
+                            : CIXAvailability( CIXAvailability::Available::Perhaps, m_ltLatestKnown );
         }  // end if
 
         // Inspect the availability status.
@@ -712,7 +729,7 @@ private:
 
     // Constructor.
     CIXItemsChunked( IIXCallback::SHP shpCB ) :
-        m_shpCB( shpCB )
+        m_shpCB( shpCB ), m_bExhausted( false )
     {
         // Delegate.
         Reset( m_shpCB );
@@ -723,13 +740,14 @@ private:
     {
         // Use the data source if available.
         _ASSERTE( m_shpCB );
-        m_ltLatestVisible = ltLatestSeen;
-        CIXAvailability retval( CIXAvailability::Available::No, m_ltLatestVisible );
+        m_ltLatestKnown = ltLatestSeen;
+        CIXAvailability retval( CIXAvailability::Available::No, m_ltLatestKnown );
         IIXDataRetrieval::SHP shpDataRetrieval = m_shpCB->AccessDataRetrieval();
-        if(shpDataRetrieval)
+        if( shpDataRetrieval )
         {
             // Retrieve the data and set the iterator.
-            m_ltLatestVisible = IX_TRY( shpDataRetrieval->RetrieveData( ltLatestSeen, m_shpCB->GetChunkSize(), OUT m_vecItems ) );
+            m_ltLatestKnown = IX_TRY( shpDataRetrieval->RetrieveData( ltLatestSeen, m_shpCB->GetChunkSize(),
+                    OUT m_bExhausted, OUT m_vecItems ) );
             m_itr = m_vecItems.begin();
 
         }  // end if
@@ -738,11 +756,12 @@ private:
         m_bRetrieved = true;
 
         // Continuation status.
-        if( m_ltLatestVisible.IsLaterThan( ltLatestSeen ) )
+        if( m_ltLatestKnown.IsLaterThan( ltLatestSeen ) )
         {
+            // Construct the availability result.
             retval = CIXAvailability( 
                     m_itr != m_vecItems.end() ? CIXAvailability::Available::Yes : CIXAvailability::Available::Perhaps,
-                    m_ltLatestVisible );
+                    m_ltLatestKnown );
         }
 
         return retval;
@@ -751,7 +770,8 @@ private:
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
     bool m_bRetrieved;  // Indicates whether the data has been retrieved.
-    CMF_LogicalTimestamp m_ltLatestVisible;  // Latest visible timestamp.
+    CMF_LogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
+    bool m_bExhausted;  // Indicates whether the data source was exhausted.
     vector< CIXItem > m_vecItems;  // Local container for items.
     vector< CIXItem >::const_iterator m_itr;  // Local iterator for items.
 };
@@ -781,10 +801,12 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
     {
+        cout << "CIXItemsBatched::MoveNext A " << iLevel << endl;
+
         // Proceed the enumerator.
-        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
+        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen, 1 );
 
         // Track the return value.
         CIXAvailability availability = IX_TRY( res );
@@ -824,13 +846,14 @@ public:
             else
             {
                 // Forward the timestamp.
-                m_shpCB->UpdateIfLater( availability.AccessLatestVisibleTimestamp() );  // void
+                m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
 
                 // Reset the lower layers.
                 Reset( m_shpCB );  // void
 
                 // Recurse.
-                res = MoveNext( m_shpCB->AccessLatestSeen() );
+                cout << "Recurse with " << m_shpCB->AccessLatestSeen().Get() << endl;
+                res = MoveNext( m_shpCB->AccessLatestSeen(), iLevel + 1 );
 
             }  // end if
 
@@ -840,6 +863,8 @@ public:
             break;
 
         }  // end switch
+
+        cout << "CIXItemsBatched::MoveNext B " << iLevel << endl;
 
         return res;
     }
@@ -920,24 +945,25 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
+    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen, int iLevel ) override
     {
+        cout << "CIXItemsEnumerator::MoveNext " << iLevel << endl;
 
         // Delegate to the lower layer enumerator.
-        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen );
+        CResult< CIXAvailability > res = m_upLowerLayerEnum->MoveNext( ltLatestSeen, 1 );
         CIXAvailability availability = IX_TRY( res );
 
         // Check the current availability first.
         if( availability.AccessAvailability() == CIXAvailability::Available::Perhaps )
         {
             // Forward the timestamp.
-            m_shpCB->UpdateIfLater( availability.AccessLatestVisibleTimestamp() );  // void
+            m_shpCB->UpdateIfLater( availability.AccessLatestKnownTimestamp() );  // void
 
             // Reset the lower layers.
             Reset( m_shpCB );  // void
 
             // Recurse.
-            res = MoveNext( m_shpCB->AccessLatestSeen() );
+            res = MoveNext( m_shpCB->AccessLatestSeen(), iLevel + 1 );
 
         }  // end if
 
@@ -1058,7 +1084,7 @@ public:
     virtual void RunImpl() override
     {
         // Proceed with the enumerator.
-        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen() ) ).AccessAvailability() != CIXAvailability::Available::No )
+        while( IX_TRY( m_upLowerLayerEnum->MoveNext( m_shpCB->AccessLatestSeen(), 1 ) ).AccessAvailability() != CIXAvailability::Available::No )
         {
             // Get the current item.
             const CIXItem& item = IX_TRY( m_upLowerLayerEnum->Current() );
