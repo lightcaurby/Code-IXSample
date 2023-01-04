@@ -90,6 +90,11 @@ CAIXJob : Process(CIXItem)
 CAIXJob <|-- CAIXJobBase
 
 
+class IIXIndexingEngine 
+<<interface>> IIXIndexingEngine
+IIXIndexingEngine : Index(CIXItem)
+CIXJob --> IIXIndexingEngine : Index
+
 class IIXEnumerable
 <<interface>> IIXEnumerable
 IIXEnumerable : MoveNext( Timestamp ) CIXAvailability
