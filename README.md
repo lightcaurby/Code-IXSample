@@ -11,12 +11,16 @@ class TimestampManager
 <<service>> TimestampManager
 IIXTimestampManager <|-- TimestampManager
 
-class IIXIndexingEngine 
-<<interface>> IIXIndexingEngine
-IIXIndexingEngine : Index(CIXItem)
+class IIXDataPreparation
+<<interface>> IIXDataPreparation
+IIXDataPreparation : Prepare(CIXItem) CIXPreparedData
+class IIXDataIndexing 
+<<interface>> IIXDataIndexing
+IIXDataIndexing : Index(CIXPreparedData)
 class IndexingEngine
 <<service>> IndexingEngine
-IIXIndexingEngine <|-- IndexingEngine
+IIXDataIndexing <|-- IndexingEngine
+IIXDataPreparation <|-- IndexingEngine
 
 class IIXDataRetrieval
 <<interface>> IIXDataRetrieval
@@ -36,7 +40,8 @@ IIXMonitor <|-- MonitorRelay
 
 IIXCallback <|-- CIXCallback
 CIXCallback o-- IIXDataRetrieval
-CIXCallback o-- IIXIndexingEngine
+CIXCallback o-- IIXDataPreparation
+CIXCallback o-- IIXDataIndexing
 CIXCallback o-- IIXTimestampManager
 CIXCallback o-- IIXMonitor
 
@@ -90,10 +95,15 @@ CAIXJob : Process(CIXItem)
 CAIXJob <|-- CAIXJobBase
 
 
-class IIXIndexingEngine 
-<<interface>> IIXIndexingEngine
-IIXIndexingEngine : Index(CIXItem)
-CIXJob --> IIXIndexingEngine : Index
+
+class IIXDataPreparation
+<<interface>> IIXDataPreparation
+IIXDataPreparation : Prepare(CIXItem) CIXPreparedData
+class IIXDataIndexing 
+<<interface>> IIXDataIndexing
+IIXDataIndexing : Index(CIXPreparedData)
+CIXJob --> IIXDataPreparation : Prepare
+CIXJob --> IIXDataIndexing : Index
 
 class IIXEnumerable
 <<interface>> IIXEnumerable
