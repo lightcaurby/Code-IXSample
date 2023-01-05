@@ -52,30 +52,30 @@ private:
 };
 
 // Logical timestamp.
-class CMF_LogicalTimestamp
+class CLogicalTimestamp
 {
 public:
 
     // Copy constructor.
-    CMF_LogicalTimestamp( const CMF_LogicalTimestamp& lt )
+    CLogicalTimestamp( const CLogicalTimestamp& lt )
         : m_iValue( lt.Get() )
     {
     }
 
     // Constructor.
-    CMF_LogicalTimestamp( int iValue )
+    CLogicalTimestamp( int iValue )
         : m_iValue( iValue )
     {
     }
 
     // Default constructor.
-    CMF_LogicalTimestamp()
+    CLogicalTimestamp()
         : m_iValue( 0 )
     {
     }
 
     // Destructor.
-    virtual ~CMF_LogicalTimestamp()
+    virtual ~CLogicalTimestamp()
     {
     }
 
@@ -83,13 +83,13 @@ public:
     int Get() const { return m_iValue;  }
 
     // Semantic comparison.
-    bool IsLaterThan( const CMF_LogicalTimestamp& ltOther ) const
+    bool IsLaterThan( const CLogicalTimestamp& ltOther ) const
     {
         return Get() > ltOther.Get();
     }
 
     // Updates if the provided is later.
-    void UpdateIfLater( const CMF_LogicalTimestamp& ltOther )
+    void UpdateIfLater( const CLogicalTimestamp& ltOther )
     {
         if( ltOther.IsLaterThan( *this ) )
             *this = ltOther;
@@ -105,16 +105,16 @@ class CIXItem
 public:
 
     // Constructor.
-    CIXItem( int i, int j, int k, const CMF_LogicalTimestamp& lt )
+    CIXItem( int i, int j, int k, const CLogicalTimestamp& lt )
         : m_i( i ),m_j( j ), m_k( k ), m_lt( lt )
     {
     }
 
     // Default constructor.
-    CIXItem() : CIXItem( 0, 0, 0, CMF_LogicalTimestamp( 0 ) ) {}
+    CIXItem() : CIXItem( 0, 0, 0, CLogicalTimestamp( 0 ) ) {}
 
     // Accesses the timestamp.
-    const CMF_LogicalTimestamp& AccessLT() const { return m_lt;  }
+    const CLogicalTimestamp& AccessLT() const { return m_lt;  }
 
     // Gets the indexable data.
     int GetI() const { return m_i;  }
@@ -125,7 +125,7 @@ private:
     int m_i;  // Indexable data.
     int m_j;  // Indexable data.
     int m_k;  // Indexable data.
-    CMF_LogicalTimestamp m_lt;  // Timestamp.
+    CLogicalTimestamp m_lt;  // Timestamp.
 };
 
 // Generic result with a built-in success code.
@@ -191,7 +191,7 @@ public:
     virtual bool Index( const CIXItem& item ) = 0;
 
     // Commits the current state.
-    virtual bool Commit( const CMF_LogicalTimestamp& lt, int iActualCount ) = 0;
+    virtual bool Commit( const CLogicalTimestamp& lt, int iActualCount ) = 0;
 
     // Destructor.
     virtual ~IIXIndexing()
@@ -343,7 +343,7 @@ public:
     }
 
     // Commits the current state.
-    virtual bool Commit( const CMF_LogicalTimestamp& lt, int iActualCount ) override
+    virtual bool Commit( const CLogicalTimestamp& lt, int iActualCount ) override
     {
         // Report the commit.
         cout << "Committed at ts( " << lt.Get() << " ) after " << iActualCount << " items." << endl;
@@ -366,8 +366,8 @@ public:
     virtual int GetGloballyAvailable() = 0;
 
     // Retrieves data.
-    virtual CResult< CMF_LogicalTimestamp > RetrieveData(
-        const CMF_LogicalTimestamp& ltLatestSeen,
+    virtual CResult< CLogicalTimestamp > RetrieveData(
+        const CLogicalTimestamp& ltLatestSeen,
         int iCount,
         OUT bool& bExhausted,
         OUT vector< CIXItem >& vecItems
@@ -388,7 +388,7 @@ public:
     enum class Available { Yes, Perhaps, No };
 
     // Constructor.
-    CIXAvailability( Available available, const CMF_LogicalTimestamp& ltLatestKnown ) :
+    CIXAvailability( Available available, const CLogicalTimestamp& ltLatestKnown ) :
         m_available( available ), m_ltLatestKnown( ltLatestKnown )
     {
     }
@@ -403,11 +403,11 @@ public:
     Available AccessAvailability() const { return m_available;  }
 
     // Accesses the latest known timestamp value.
-    const CMF_LogicalTimestamp& AccessLatestKnownTimestamp() const { return m_ltLatestKnown; }
+    const CLogicalTimestamp& AccessLatestKnownTimestamp() const { return m_ltLatestKnown; }
 
 private:
     Available m_available;  // Availability status.
-    CMF_LogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
+    CLogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
 };
 
 // Data retrieval implementation.
@@ -438,8 +438,8 @@ public:
     }
 
     // Retrieves data.
-    virtual CResult< CMF_LogicalTimestamp > RetrieveData(
-        const CMF_LogicalTimestamp& ltLatestSeen,
+    virtual CResult< CLogicalTimestamp > RetrieveData(
+        const CLogicalTimestamp& ltLatestSeen,
         int iCount,
         OUT bool& bExhausted,
         OUT vector< CIXItem >& vecItems
@@ -450,7 +450,7 @@ public:
         vecItems.clear();
 
         // Latest known timestamp after the initial threshold.
-        CMF_LogicalTimestamp ltLatestKnown = ltLatestSeen;
+        CLogicalTimestamp ltLatestKnown = ltLatestSeen;
 
         // Determine the timestamp threshold.
         int iStart = ltLatestSeen.Get() + 1;
@@ -469,7 +469,7 @@ public:
             }  // end if
 
             // Store the data.
-            ltLatestKnown = CMF_LogicalTimestamp( iItem );
+            ltLatestKnown = CLogicalTimestamp( iItem );
             if( m_distr( m_rd ) > m_iAcceptanceThreshold )
                 vecItems.push_back( CIXItem( iItem * 2, iItem * 3, iItem * 4, ltLatestKnown ) );
 
@@ -487,7 +487,7 @@ public:
                 "." <<
                 endl;
 
-        return CResult< CMF_LogicalTimestamp >( true, ltLatestKnown );
+        return CResult< CLogicalTimestamp >( true, ltLatestKnown );
     }
 
 private:
@@ -512,10 +512,10 @@ public:
     virtual int GetChunkSize() = 0;
 
     // Accesses the latest seen timestamp.
-    virtual const CMF_LogicalTimestamp& AccessLatestSeen() const = 0;
+    virtual const CLogicalTimestamp& AccessLatestSeen() const = 0;
 
     // Updates the locally stored timestamp if the provided one is later.
-    virtual void UpdateIfLater( const CMF_LogicalTimestamp& ltProvided ) = 0;
+    virtual void UpdateIfLater( const CLogicalTimestamp& ltProvided ) = 0;
 
     // Accesses the data retrieval.
     virtual const IIXDataRetrieval::SHP AccessDataRetrieval() = 0;
@@ -535,7 +535,7 @@ class CIXCallback : public IIXCallback, public CLifeReporterAgent< CIXCallback >
 public:
 
     // Constructor.
-    CIXCallback( IIXDataRetrieval::SHP shpDataRetrieval, IIXIndexing::SHP shpIndexing, const CMF_LogicalTimestamp& ltLatestSeen )
+    CIXCallback( IIXDataRetrieval::SHP shpDataRetrieval, IIXIndexing::SHP shpIndexing, const CLogicalTimestamp& ltLatestSeen )
         : m_shpDataRetrieval( shpDataRetrieval ), m_shpIndexing( shpIndexing ), m_ltLatestSeen( ltLatestSeen )
     {
     }
@@ -563,14 +563,14 @@ public:
     }
 
     // Accesses the latest seen timestamp.
-    virtual const CMF_LogicalTimestamp& AccessLatestSeen() const override
+    virtual const CLogicalTimestamp& AccessLatestSeen() const override
     {
         // Access the timestamp.
         return m_ltLatestSeen;
     }
 
     // Updates the locally stored timestamp if the provided one is later.
-    virtual void UpdateIfLater( const CMF_LogicalTimestamp& ltProvided ) override
+    virtual void UpdateIfLater( const CLogicalTimestamp& ltProvided ) override
     {
         // Delegate to the timestamp.
         m_ltLatestSeen.UpdateIfLater( ltProvided );  // void
@@ -593,7 +593,7 @@ public:
 private:
     IIXDataRetrieval::SHP m_shpDataRetrieval;  // Data retrieval interface.
     IIXIndexing::SHP m_shpIndexing;  // Indexing engine interface.
-    CMF_LogicalTimestamp m_ltLatestSeen;  // Latest seen timestamp.
+    CLogicalTimestamp m_ltLatestSeen;  // Latest seen timestamp.
 };
 
 // Enumerator interface.
@@ -608,7 +608,7 @@ public:
     typedef unique_ptr< IIXEnumerable > UP;
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) = 0;
+    virtual CResult< CIXAvailability > MoveNext( const CLogicalTimestamp& ltLatestSeen ) = 0;
     
     // Gets the current item.
     virtual CResult< CIXItem > Current() const = 0;
@@ -647,7 +647,7 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen ) override
+    virtual CResult< CIXAvailability > MoveNext( const CLogicalTimestamp& ltLatestSeen ) override
     {
         // Initialize or proceed the enumerator. 
         CIXAvailability retval( CIXAvailability::Available::No, ltLatestSeen );
@@ -734,7 +734,7 @@ private:
     }
 
     // Attempts to retrieve data to the local container.
-    CIXAvailability RetrieveData( const CMF_LogicalTimestamp& ltLatestSeen )
+    CIXAvailability RetrieveData( const CLogicalTimestamp& ltLatestSeen )
     {
         // Use the data source if available.
         _ASSERTE( m_shpCB );
@@ -772,7 +772,7 @@ private:
 private:
     IIXCallback::SHP m_shpCB;  // Callback interface.
     bool m_bRetrieved;  // Indicates whether the data has been retrieved.
-    CMF_LogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
+    CLogicalTimestamp m_ltLatestKnown;  // Latest known timestamp.
     bool m_bExhausted;  // Indicates whether the data source was exhausted.
     vector< CIXItem > m_vecItems;  // Local container for items.
     vector< CIXItem >::const_iterator m_itr;  // Local iterator for items.
@@ -803,12 +803,12 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen_ ) override
+    virtual CResult< CIXAvailability > MoveNext( const CLogicalTimestamp& ltLatestSeen_ ) override
     {
         // Locals.
         CResult< CIXAvailability > res( true, CIXAvailability() );
         CIXAvailability availability;
-        CMF_LogicalTimestamp ltLatestSeen = ltLatestSeen_;
+        CLogicalTimestamp ltLatestSeen = ltLatestSeen_;
         bool bContinueWithNewerTimestamp = true;
 
         // Loop while lower layers do not return a definitive Yes/No answer.
@@ -914,7 +914,7 @@ private:
     }
 
     // Commits the current progress.
-    CResult< bool > Commit( const CMF_LogicalTimestamp& lt )
+    CResult< bool > Commit( const CLogicalTimestamp& lt )
     {
         // Try to commit.
         _ASSERTE( m_shpCB );
@@ -976,12 +976,12 @@ public:
 public:
 
     // Proceeds the enumerator.
-    virtual CResult< CIXAvailability > MoveNext( const CMF_LogicalTimestamp& ltLatestSeen_ ) override
+    virtual CResult< CIXAvailability > MoveNext( const CLogicalTimestamp& ltLatestSeen_ ) override
     {
         // Locals.
         CResult< CIXAvailability > res( true, CIXAvailability() );
         CIXAvailability availability;
-        CMF_LogicalTimestamp ltLatestSeen = ltLatestSeen_;
+        CLogicalTimestamp ltLatestSeen = ltLatestSeen_;
         bool bContinueWithNewerTimestamp = true;
 
         // Loop while lower layers do not return a definitive Yes/No answer.
@@ -1247,7 +1247,7 @@ void RunIndexingRequest()
     shared_ptr< IIXIndexing > shpIndexing = shared_ptr< IIXIndexing >( new CIXIndexing );
 
     // Overall timestamp. Start from scratch.
-    CMF_LogicalTimestamp lt;
+    CLogicalTimestamp lt;
 
     // Callback.
     shared_ptr< IIXCallback > shpCB = shared_ptr< IIXCallback >( new CIXCallback( shpDataRetrieval, shpIndexing, lt ) );
